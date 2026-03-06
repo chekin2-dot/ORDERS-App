@@ -1,0 +1,91 @@
+/*
+  # Populate Product Catalog - Fruits & Légumes
+
+  Adds all fruits and vegetables to the product catalog
+*/
+
+-- Fruits frais
+INSERT INTO product_catalog (name, category, subcategory, search_terms) VALUES
+('Pommes Golden', 'Fruits & Légumes', 'Fruits frais', 'pommes golden fruits'),
+('Pommes Gala', 'Fruits & Légumes', 'Fruits frais', 'pommes gala fruits'),
+('Pommes Granny Smith', 'Fruits & Légumes', 'Fruits frais', 'pommes granny smith fruits'),
+('Pommes Pink Lady', 'Fruits & Légumes', 'Fruits frais', 'pommes pink lady fruits'),
+('Bananes', 'Fruits & Légumes', 'Fruits frais', 'bananes fruits'),
+('Oranges', 'Fruits & Légumes', 'Fruits frais', 'oranges fruits agrumes'),
+('Mandarines', 'Fruits & Légumes', 'Fruits frais', 'mandarines clementines fruits agrumes'),
+('Citrons jaunes', 'Fruits & Légumes', 'Fruits frais', 'citrons jaunes fruits agrumes'),
+('Citrons verts', 'Fruits & Légumes', 'Fruits frais', 'citrons verts lime fruits agrumes'),
+('Pêches', 'Fruits & Légumes', 'Fruits frais', 'peches fruits'),
+('Nectarines', 'Fruits & Légumes', 'Fruits frais', 'nectarines fruits'),
+('Abricots', 'Fruits & Légumes', 'Fruits frais', 'abricots fruits'),
+('Prunes', 'Fruits & Légumes', 'Fruits frais', 'prunes fruits'),
+('Cerises', 'Fruits & Légumes', 'Fruits frais', 'cerises fruits'),
+('Raisins blancs', 'Fruits & Légumes', 'Fruits frais', 'raisins blancs fruits'),
+('Raisins noirs', 'Fruits & Légumes', 'Fruits frais', 'raisins noirs fruits'),
+('Poires', 'Fruits & Légumes', 'Fruits frais', 'poires fruits'),
+('Mangues', 'Fruits & Légumes', 'Fruits frais', 'mangues fruits'),
+('Papayes', 'Fruits & Légumes', 'Fruits frais', 'papayes fruits'),
+('Ananas', 'Fruits & Légumes', 'Fruits frais', 'ananas fruits'),
+('Kiwis verts', 'Fruits & Légumes', 'Fruits frais', 'kiwis verts fruits'),
+('Kiwis jaunes', 'Fruits & Légumes', 'Fruits frais', 'kiwis jaunes fruits'),
+('Melon', 'Fruits & Légumes', 'Fruits frais', 'melon charentais jaune fruits'),
+('Pastèque', 'Fruits & Légumes', 'Fruits frais', 'pasteque fruits'),
+('Figues fraîches', 'Fruits & Légumes', 'Fruits frais', 'figues fraiches fruits'),
+('Grenades', 'Fruits & Légumes', 'Fruits frais', 'grenades fruits'),
+('Pamplemousse', 'Fruits & Légumes', 'Fruits frais', 'pamplemousse fruits agrumes'),
+('Fruit de la passion', 'Fruits & Légumes', 'Fruits frais', 'fruit passion fruits'),
+('Litchis', 'Fruits & Légumes', 'Fruits frais', 'litchis fruits'),
+('Noix de coco fraîche', 'Fruits & Légumes', 'Fruits frais', 'noix coco fraiche fruits'),
+('Avocats', 'Fruits & Légumes', 'Fruits frais', 'avocats fruits');
+
+-- Légumes frais
+INSERT INTO product_catalog (name, category, subcategory, search_terms) VALUES
+('Pommes de terre', 'Fruits & Légumes', 'Légumes frais', 'pommes terre legumes'),
+('Oignons jaunes', 'Fruits & Légumes', 'Légumes frais', 'oignons jaunes legumes'),
+('Oignons rouges', 'Fruits & Légumes', 'Légumes frais', 'oignons rouges legumes'),
+('Échalotes', 'Fruits & Légumes', 'Légumes frais', 'echalotes legumes'),
+('Ail', 'Fruits & Légumes', 'Légumes frais', 'ail legumes'),
+('Carottes', 'Fruits & Légumes', 'Légumes frais', 'carottes legumes'),
+('Poireaux', 'Fruits & Légumes', 'Légumes frais', 'poireaux legumes'),
+('Navets', 'Fruits & Légumes', 'Légumes frais', 'navets legumes'),
+('Céleri branche', 'Fruits & Légumes', 'Légumes frais', 'celeri branche legumes'),
+('Céleri-rave', 'Fruits & Légumes', 'Légumes frais', 'celeri rave legumes'),
+('Courgettes vertes', 'Fruits & Légumes', 'Légumes frais', 'courgettes vertes legumes'),
+('Courgettes jaunes', 'Fruits & Légumes', 'Légumes frais', 'courgettes jaunes legumes'),
+('Aubergines', 'Fruits & Légumes', 'Légumes frais', 'aubergines legumes'),
+('Poivrons rouges', 'Fruits & Légumes', 'Légumes frais', 'poivrons rouges legumes'),
+('Poivrons verts', 'Fruits & Légumes', 'Légumes frais', 'poivrons verts legumes'),
+('Poivrons jaunes', 'Fruits & Légumes', 'Légumes frais', 'poivrons jaunes legumes'),
+('Tomates rondes', 'Fruits & Légumes', 'Légumes frais', 'tomates rondes legumes'),
+('Tomates cerises', 'Fruits & Légumes', 'Légumes frais', 'tomates cerises legumes'),
+('Tomates allongées', 'Fruits & Légumes', 'Légumes frais', 'tomates allongees legumes'),
+('Concombres', 'Fruits & Légumes', 'Légumes frais', 'concombres legumes'),
+('Salade verte', 'Fruits & Légumes', 'Légumes frais', 'salade verte laitue batavia legumes'),
+('Salade iceberg', 'Fruits & Légumes', 'Légumes frais', 'salade iceberg legumes'),
+('Salade romaine', 'Fruits & Légumes', 'Légumes frais', 'salade romaine legumes'),
+('Roquette', 'Fruits & Légumes', 'Légumes frais', 'roquette salade legumes'),
+('Épinards frais', 'Fruits & Légumes', 'Légumes frais', 'epinards frais legumes'),
+('Chou blanc', 'Fruits & Légumes', 'Légumes frais', 'chou blanc legumes'),
+('Chou rouge', 'Fruits & Légumes', 'Légumes frais', 'chou rouge legumes'),
+('Chou vert', 'Fruits & Légumes', 'Légumes frais', 'chou vert legumes'),
+('Chou-fleur', 'Fruits & Légumes', 'Légumes frais', 'chou fleur legumes'),
+('Brocoli', 'Fruits & Légumes', 'Légumes frais', 'brocoli legumes'),
+('Haricots verts', 'Fruits & Légumes', 'Légumes frais', 'haricots verts legumes'),
+('Petits pois frais', 'Fruits & Légumes', 'Légumes frais', 'petits pois frais legumes'),
+('Radis', 'Fruits & Légumes', 'Légumes frais', 'radis legumes'),
+('Betteraves', 'Fruits & Légumes', 'Légumes frais', 'betteraves legumes'),
+('Champignons de Paris', 'Fruits & Légumes', 'Légumes frais', 'champignons paris legumes'),
+('Champignons bruns', 'Fruits & Légumes', 'Légumes frais', 'champignons bruns legumes'),
+('Courges', 'Fruits & Légumes', 'Légumes frais', 'courges butternut potimarron legumes'),
+('Fenouil', 'Fruits & Légumes', 'Légumes frais', 'fenouil legumes');
+
+-- Herbes fraîches
+INSERT INTO product_catalog (name, category, subcategory, search_terms) VALUES
+('Persil', 'Fruits & Légumes', 'Herbes fraîches', 'persil herbes aromatiques'),
+('Coriandre', 'Fruits & Légumes', 'Herbes fraîches', 'coriandre herbes aromatiques'),
+('Basilic', 'Fruits & Légumes', 'Herbes fraîches', 'basilic herbes aromatiques'),
+('Menthe', 'Fruits & Légumes', 'Herbes fraîches', 'menthe herbes aromatiques'),
+('Thym', 'Fruits & Légumes', 'Herbes fraîches', 'thym herbes aromatiques'),
+('Romarin', 'Fruits & Légumes', 'Herbes fraîches', 'romarin herbes aromatiques'),
+('Ciboulette', 'Fruits & Légumes', 'Herbes fraîches', 'ciboulette herbes aromatiques'),
+('Laurier', 'Fruits & Légumes', 'Herbes fraîches', 'laurier herbes aromatiques');
