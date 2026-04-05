@@ -145,4 +145,3 @@ app.listen(PORT, () => {
   const certs = loadCertificates();
   console.log(`mTLS: ${certs ? 'ENABLED' : 'DISABLED (no cert found)'}`);
 });
-Fix proxy health endpoint to include target_url
