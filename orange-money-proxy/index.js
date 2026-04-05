@@ -39,7 +39,7 @@ function loadCertificates() {
   return null;
 }
 
-function buildHttpsAgent() {
+function buildHttpsAgent(targetHostname) {
   const certs = loadCertificates();
   const agentOptions = {
     rejectUnauthorized: false,
