@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: orange-money-proxy
+    runtime: node
+    rootDir: orange-money-proxy
+    buildCommand: npm install
+    startCommand: node index.js
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ORANGE_MONEY_API_URL
+        sync: false
+      - key: PROXY_SECRET
+        sync: false
+      - key: OM_CERT_B64
+        sync: false
+      - key: OM_KEY_B64
+        sync: false
+      - key: FIXIE_URL
+        sync: false

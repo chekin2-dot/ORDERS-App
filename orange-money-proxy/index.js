@@ -1,9 +1,8 @@
 const express = require('express');
-const https = require('https');
-const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { HttpsProxyAgent } = require('https-proxy-agent');
+const fetch = require('node-fetch');
 
 const app = express();
 app.use(express.text({ type: 'text/xml' }));
@@ -11,12 +10,14 @@ app.use(express.json());
 
 const PROXY_SECRET = process.env.PROXY_SECRET;
 const PORT = process.env.PORT || 3000;
-<<<<<<< Updated upstream
 const OM_API_URL = process.env.ORANGE_MONEY_API_URL || 'https://apiom.orange.bf/';
-=======
-const OM_API_URL = process.env.ORANGE_MONEY_API_URL || 'https://apiom.orange.bf/payment';
->>>>>>> Stashed changes
 const FIXIE_URL = process.env.FIXIE_URL;
+
+if (!FIXIE_URL) {
+  console.warn('WARNING: FIXIE_URL env var is not set. Outbound requests will use the server\'s default IP, which may not be whitelisted by Orange Money API.');
+} else {
+  console.log(`Outbound routing via Fixie proxy: ${FIXIE_URL.replace(/:\/\/.*@/, '://***@')}`);
+}
 
 function loadCertificates() {
   const certB64 = process.env.OM_CERT_B64;
@@ -24,8 +25,8 @@ function loadCertificates() {
   if (certB64 && keyB64) {
     console.log('mTLS: loading certificates from base64 environment variables.');
     return {
-      cert: Buffer.from(certB64, 'base64'),
-      key: Buffer.from(keyB64, 'base64'),
+      cert: Buffer.from(certB64, 'base64').toString('utf8'),
+      key: Buffer.from(keyB64, 'base64').toString('utf8'),
     };
   }
 
@@ -34,8 +35,8 @@ function loadCertificates() {
   if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
     console.log(`mTLS: loading certificates from files (${certPath}, ${keyPath}).`);
     return {
-      cert: fs.readFileSync(certPath),
-      key: fs.readFileSync(keyPath),
+      cert: fs.readFileSync(certPath, 'utf8'),
+      key: fs.readFileSync(keyPath, 'utf8'),
     };
   }
 
@@ -43,23 +44,23 @@ function loadCertificates() {
   return null;
 }
 
-function buildHttpsAgent(targetHostname) {
+function buildAgent() {
   const certs = loadCertificates();
-  const agentOptions = {
-    rejectUnauthorized: false,
-    ...(certs || {}),
-  };
-
   if (FIXIE_URL) {
-    console.log(`Outbound routing via Fixie proxy: ${FIXIE_URL.replace(/:\/\/.*@/, '://***@')}`);
-    const fixieAgent = new HttpsProxyAgent(FIXIE_URL, agentOptions);
-    return fixieAgent;
+    return new HttpsProxyAgent(FIXIE_URL, {
+      rejectUnauthorized: false,
+      ...(certs || {}),
+    });
   }
-
-  return new https.Agent(agentOptions);
+  if (certs) {
+    const https = require('https');
+    return new https.Agent({
+      rejectUnauthorized: false,
+      ...certs,
+    });
+  }
+  return undefined;
 }
-
-const httpsAgent = buildHttpsAgent();
 
 app.use((req, res, next) => {
   if (req.path === '/health') return next();
@@ -70,7 +71,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.post('/orange-money/payment-node', (req, res) => {
+app.post('/orange-money/payment-node', async (req, res) => {
   try {
     const xmlBody = typeof req.body === 'string' ? req.body : req.body.xml;
 
@@ -78,45 +79,27 @@ app.post('/orange-money/payment-node', (req, res) => {
       return res.status(400).json({ error: 'Missing XML body' });
     }
 
-    const targetUrl = new URL(OM_API_URL);
-    const isHttps = targetUrl.protocol === 'https:';
-    const agent = isHttps ? httpsAgent : new http.Agent();
-    const postData = Buffer.from(xmlBody, 'utf8');
+    const agent = buildAgent();
+    const targetUrl = OM_API_URL.endsWith('/') ? OM_API_URL : OM_API_URL + '/';
 
-    const options = {
-      hostname: targetUrl.hostname,
-      port: targetUrl.port || (isHttps ? 443 : 80),
-      path: targetUrl.pathname,
+    console.log(`[${new Date().toISOString()}] Forwarding to: ${targetUrl}`);
+
+    const fetchOptions = {
       method: 'POST',
-      headers: {
-        'Content-Type': 'text/xml; charset=UTF-8',
-        'Content-Length': postData.length,
-      },
-      agent,
+      headers: { 'Content-Type': 'text/xml; charset=UTF-8' },
+      body: xmlBody,
     };
+    if (agent) fetchOptions.agent = agent;
 
-    console.log(`[${new Date().toISOString()}] Forwarding to: ${OM_API_URL}`);
+    const response = await fetch(targetUrl, fetchOptions);
 
-    const lib = isHttps ? https : http;
-    const proxyReq = lib.request(options, (proxyRes) => {
-      let data = '';
-      proxyRes.on('data', (chunk) => { data += chunk; });
-      proxyRes.on('end', () => {
-        console.log(`[${new Date().toISOString()}] OM status: ${proxyRes.statusCode}`);
-        console.log(`[${new Date().toISOString()}] OM response: ${data}`);
-        res.status(proxyRes.statusCode || 200)
-          .set('Content-Type', 'text/xml')
-          .send(data);
-      });
-    });
+    const responseText = await response.text();
+    console.log(`[${new Date().toISOString()}] OM status: ${response.status}`);
+    console.log(`[${new Date().toISOString()}] OM response: ${responseText}`);
 
-    proxyReq.on('error', (error) => {
-      console.error('Proxy request error:', error);
-      res.status(500).json({ error: error.message });
-    });
-
-    proxyReq.write(postData);
-    proxyReq.end();
+    res.status(response.status)
+      .set('Content-Type', 'text/xml')
+      .send(responseText);
 
   } catch (error) {
     console.error('Payment-node error:', error);
@@ -134,18 +117,20 @@ app.get('/health', (_req, res) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     fixie_enabled: !!FIXIE_URL,
+    fixie_url_prefix: FIXIE_URL ? FIXIE_URL.replace(/:\/\/.*@/, '://***@') : 'not configured',
     mtls: {
       cert_from_env: !!(certB64 && keyB64),
       cert_from_file: fs.existsSync(certPath) && fs.existsSync(keyPath),
     },
     target_url: OM_API_URL,
+    node_version: process.version,
   });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Orange Money proxy running on port ${PORT}`);
   console.log(`Target: ${OM_API_URL}`);
-  console.log(`Fixie static IP routing: ${FIXIE_URL ? 'ENABLED' : 'DISABLED (set FIXIE_URL env var)'}`);
+  console.log(`Fixie static IP routing: ${FIXIE_URL ? 'ENABLED' : 'DISABLED (no FIXIE_URL set)'}`);
   const certs = loadCertificates();
   console.log(`mTLS: ${certs ? 'ENABLED' : 'DISABLED (no cert found)'}`);
 });
