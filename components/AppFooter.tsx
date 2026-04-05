@@ -4,7 +4,7 @@ export default function AppFooter() {
   return (
     <View style={styles.footer}>
       <Text style={styles.footerText}>
-        <Text style={styles.designBy}>Design by</Text> <Text style={styles.footerBrand}>ODF BF</Text>
+        <Text style={styles.designBy}>Design by</Text> <Text style={styles.footerBrand}>OFD BF</Text>
       </Text>
     </View>
   );

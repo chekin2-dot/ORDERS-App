@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, RefreshControl } from 'react-native';
-import { Search, PackageSearch, Eye, DollarSign, ChevronUp, ChevronDown } from 'lucide-react-native';
+import { Search, PackageSearch, DollarSign, ChevronUp, ChevronDown, Download } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
+import { exportOrdersToExcel } from '@/lib/excelExport';
 
 interface Order {
   id: string;
@@ -24,6 +25,7 @@ export default function OrdersManagementScreen() {
   const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -79,6 +81,18 @@ export default function OrdersManagementScreen() {
     }
 
     setFilteredOrders(filtered);
+  };
+
+  const handleExport = async () => {
+    if (filteredOrders.length === 0) return;
+    setExporting(true);
+    try {
+      await exportOrdersToExcel(filteredOrders);
+    } catch (error: any) {
+      console.error('Export error:', error);
+    } finally {
+      setExporting(false);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -141,7 +155,23 @@ export default function OrdersManagementScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Commandes & Transactions</Text>
-        <Text style={styles.subtitle}>{filteredOrders.length} commandes</Text>
+        <View style={styles.headerRow}>
+          <Text style={styles.subtitle}>{filteredOrders.length} commandes</Text>
+          <TouchableOpacity
+            style={styles.exportButton}
+            onPress={handleExport}
+            disabled={exporting || loading}
+          >
+            {exporting ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Download size={16} color="#fff" />
+                <Text style={styles.exportButtonText}>Exporter</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.searchContainer}>
@@ -277,6 +307,26 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  exportButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#10b981',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  exportButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
   },
   title: {
     fontSize: 28,

@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
+import { Platform } from 'react-native';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal, ActivityIndicator, Alert } from 'react-native';
-import { X, UserPlus, UserMinus, Shield, Bell, Database, Download, Upload, Trash2, Check } from 'lucide-react-native';
+import { X, UserPlus, UserMinus, Shield, Bell, Database, Download, Trash2 } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import * as FileSystem from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
 import { exportDatabaseBackupToExcel } from '@/lib/excelExport';
 
 interface AdminUser {
@@ -401,22 +400,37 @@ export default function AdminToolsScreen() {
         };
 
         const jsonString = JSON.stringify(backupData, null, 2);
-        const fileUri = FileSystem.documentDirectory + fileName;
 
-        await FileSystem.writeAsStringAsync(fileUri, jsonString, {
-          encoding: FileSystem.EncodingType.UTF8,
-        });
-
-        const canShare = await Sharing.isAvailableAsync();
-        if (canShare) {
-          await Sharing.shareAsync(fileUri, {
-            mimeType: 'application/json',
-            dialogTitle: 'Exporter la sauvegarde JSON',
-            UTI: 'public.json',
-          });
-          Alert.alert('Succès', 'Sauvegarde JSON créée et exportée avec succès!');
+        if (Platform.OS === 'web') {
+          const blob = new Blob([jsonString], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.style.display = 'none';
+          a.href = url;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }, 100);
         } else {
-          Alert.alert('Succès', `Sauvegarde enregistrée dans: ${fileUri}`);
+          const FileSystem = await import('expo-file-system');
+          const Sharing = await import('expo-sharing');
+          const fileUri = FileSystem.documentDirectory + fileName;
+          await FileSystem.writeAsStringAsync(fileUri, jsonString, {
+            encoding: FileSystem.EncodingType.UTF8,
+          });
+          const canShare = await Sharing.isAvailableAsync();
+          if (canShare) {
+            await Sharing.shareAsync(fileUri, {
+              mimeType: 'application/json',
+              dialogTitle: 'Exporter la sauvegarde JSON',
+              UTI: 'public.json',
+            });
+          } else {
+            Alert.alert('Succès', `Sauvegarde enregistrée dans: ${fileUri}`);
+          }
         }
       }
     } catch (error: any) {

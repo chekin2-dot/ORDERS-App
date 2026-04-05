@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, Modal, Linking, Image } from 'react-native';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, DollarSign, Plus, Search, X, Trash2, Edit, CreditCard } from 'lucide-react-native';
+import { ArrowLeft, DollarSign, Plus, Search, X, Trash2, CreditCard as Edit, CreditCard } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { Toast } from '@/components/Toast';
 
@@ -14,6 +14,73 @@ interface MonthlyExpense {
   description: string | null;
   created_at: string;
   updated_at: string;
+}
+
+function ExpenseCard({
+  expense,
+  onEdit,
+  onDelete,
+  onPay,
+}: {
+  expense: MonthlyExpense;
+  onEdit: (e: MonthlyExpense) => void;
+  onDelete: (e: MonthlyExpense) => void;
+  onPay: (ussd: string | null) => void;
+}) {
+  const [imgError, setImgError] = useState(false);
+
+  return (
+    <View style={styles.expenseCard}>
+      <View style={styles.expenseHeader}>
+        <View style={styles.expenseLogoContainer}>
+          {expense.logo_url && !imgError ? (
+            <Image
+              source={{ uri: expense.logo_url }}
+              style={styles.expenseLogo}
+              resizeMode="contain"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <View style={styles.expenseLogoPlaceholder}>
+              <Text style={styles.expenseLogoLetter}>
+                {expense.name.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
+        </View>
+        <View style={styles.expenseInfo}>
+          <Text style={styles.expenseName}>{expense.name}</Text>
+          {expense.description && (
+            <Text style={styles.expenseDescription} numberOfLines={2}>
+              {expense.description}
+            </Text>
+          )}
+        </View>
+        <TouchableOpacity style={styles.editButton} onPress={() => onEdit(expense)}>
+          <Edit size={18} color="#2563eb" />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.expenseFooter}>
+        <View style={styles.expenseAmount}>
+          <DollarSign size={18} color="#059669" />
+          <Text style={styles.expenseAmountText}>{expense.amount.toFixed(2)} / mois</Text>
+        </View>
+
+        <View style={styles.expenseActions}>
+          {expense.payment_ussd && (
+            <TouchableOpacity style={styles.payButton} onPress={() => onPay(expense.payment_ussd)}>
+              <CreditCard size={18} color="#fff" />
+              <Text style={styles.payButtonText}>Payer</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={styles.deleteButton} onPress={() => onDelete(expense)}>
+            <Trash2 size={18} color="#dc2626" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
 }
 
 export default function MonthlyExpensesScreen() {
@@ -191,49 +258,13 @@ export default function MonthlyExpensesScreen() {
   };
 
   const renderExpenseCard = (expense: MonthlyExpense) => (
-    <View key={expense.id} style={styles.expenseCard}>
-      <View style={styles.expenseHeader}>
-        <View style={styles.expenseLogoContainer}>
-          {expense.logo_url ? (
-            <Image source={{ uri: expense.logo_url }} style={styles.expenseLogo} resizeMode="contain" />
-          ) : (
-            <View style={styles.expenseLogoPlaceholder}>
-              <DollarSign size={24} color="#2563eb" />
-            </View>
-          )}
-        </View>
-        <View style={styles.expenseInfo}>
-          <Text style={styles.expenseName}>{expense.name}</Text>
-          {expense.description && (
-            <Text style={styles.expenseDescription} numberOfLines={2}>
-              {expense.description}
-            </Text>
-          )}
-        </View>
-        <TouchableOpacity style={styles.editButton} onPress={() => openEditModal(expense)}>
-          <Edit size={18} color="#2563eb" />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.expenseFooter}>
-        <View style={styles.expenseAmount}>
-          <DollarSign size={18} color="#059669" />
-          <Text style={styles.expenseAmountText}>{expense.amount.toFixed(2)} / mois</Text>
-        </View>
-
-        <View style={styles.expenseActions}>
-          {expense.payment_ussd && (
-            <TouchableOpacity style={styles.payButton} onPress={() => handlePayment(expense.payment_ussd)}>
-              <CreditCard size={18} color="#fff" />
-              <Text style={styles.payButtonText}>Payer</Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity style={styles.deleteButton} onPress={() => handleDeleteExpense(expense)}>
-            <Trash2 size={18} color="#dc2626" />
-          </TouchableOpacity>
-        </View>
-      </View>
-    </View>
+    <ExpenseCard
+      key={expense.id}
+      expense={expense}
+      onEdit={openEditModal}
+      onDelete={handleDeleteExpense}
+      onPay={handlePayment}
+    />
   );
 
   const renderModal = (visible: boolean, onClose: () => void, onSave: () => void, title: string) => (
@@ -545,6 +576,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#eff6ff',
+  },
+  expenseLogoLetter: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#2563eb',
   },
   expenseInfo: {
     flex: 1,

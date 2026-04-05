@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Linking, Alert, TextInput, Modal, Image } from 'react-native';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, Users, Truck, DollarSign, Phone, CreditCard, CheckCircle, X, Search } from 'lucide-react-native';
+import { ArrowLeft, Users, Truck, DollarSign, Phone, CreditCard, CircleCheck as CheckCircle, X, Search, FileText } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { Toast } from '@/components/Toast';
+import PaymentBulletin, { BulletinData } from '@/components/PaymentBulletin';
 
 type PartnerType = 'merchants' | 'drivers';
 
 interface Merchant {
   id: string;
+  user_id: string;
   shop_name: string;
   orange_money_number: string | null;
   orange_money_name: string | null;
@@ -23,6 +25,7 @@ interface Merchant {
 
 interface Driver {
   id: string;
+  user_id: string;
   balance: number;
   orange_money_number: string | null;
   orange_money_name: string | null;
@@ -48,9 +51,44 @@ export default function PartnerPaymentsScreen() {
   const [toastMessage, setToastMessage] = useState('');
   const [toastType, setToastType] = useState<'success' | 'error' | 'info'>('info');
   const [searchQuery, setSearchQuery] = useState('');
+  const [pendingPayoutDates, setPendingPayoutDates] = useState<string[]>([]);
+  const [showBulletin, setShowBulletin] = useState(false);
+  const [currentBulletin, setCurrentBulletin] = useState<BulletinData | null>(null);
+  const [confirmingPayment, setConfirmingPayment] = useState(false);
 
   useEffect(() => {
     loadPartners();
+  }, [activeTab]);
+
+  useEffect(() => {
+    const merchantsSub = supabase
+      .channel('admin_merchants_om')
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'merchants',
+        filter: 'verification_status=eq.verified',
+      }, () => {
+        if (activeTab === 'merchants') loadPartners();
+      })
+      .subscribe();
+
+    const driversSub = supabase
+      .channel('admin_drivers_om')
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'drivers',
+        filter: 'verification_status=eq.verified',
+      }, () => {
+        if (activeTab === 'drivers') loadPartners();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(merchantsSub);
+      supabase.removeChannel(driversSub);
+    };
   }, [activeTab]);
 
   const loadPartners = async () => {
@@ -62,6 +100,7 @@ export default function PartnerPaymentsScreen() {
           .from('merchants')
           .select(`
             id,
+            user_id,
             shop_name,
             orange_money_number,
             orange_money_name,
@@ -89,12 +128,13 @@ export default function PartnerPaymentsScreen() {
           })
         );
 
-        setMerchants(merchantsWithBalances);
+        setMerchants(merchantsWithBalances as any as Merchant[]);
       } else {
         const { data: driversData, error } = await supabase
           .from('drivers')
           .select(`
             id,
+            user_id,
             balance,
             orange_money_number,
             orange_money_name,
@@ -104,7 +144,7 @@ export default function PartnerPaymentsScreen() {
           .order('user_profiles(first_name)');
 
         if (error) throw error;
-        setDrivers(driversData || []);
+        setDrivers((driversData || []) as any as Driver[]);
       }
     } catch (error) {
       console.error('Error loading partners:', error);
@@ -120,14 +160,67 @@ export default function PartnerPaymentsScreen() {
     setToastVisible(true);
   };
 
-  const handleSelectPartner = (partner: Merchant | Driver) => {
+  const handleSelectPartner = async (partner: Merchant | Driver) => {
     setSelectedPartner(partner);
     const amount = 'pending_amount' in partner ? partner.pending_amount : partner.balance;
     setPaymentAmount(amount.toFixed(0));
+    setPendingPayoutDates([]);
+
+    if ('pending_amount' in partner) {
+      const { data } = await supabase
+        .from('merchant_daily_payouts')
+        .select('payment_date')
+        .eq('merchant_id', partner.id)
+        .eq('payment_status', 'pending')
+        .order('payment_date', { ascending: true });
+
+      if (data) {
+        setPendingPayoutDates(data.map((d) => d.payment_date));
+      }
+    } else {
+      const { data: earnings } = await supabase
+        .from('driver_earnings')
+        .select('created_at')
+        .eq('driver_id', partner.id)
+        .in('earning_type', ['delivery_fee', 'express_bonus', 'tip'])
+        .eq('status', 'credited')
+        .order('created_at', { ascending: true });
+
+      if (earnings && earnings.length > 0) {
+        const uniqueDates = [...new Set(
+          earnings.map((e) => e.created_at.split('T')[0])
+        )];
+
+        const { data: lastBulletin } = await supabase
+          .from('payment_bulletins')
+          .select('paid_at')
+          .eq('partner_id', partner.id)
+          .eq('recipient_type', 'driver')
+          .order('paid_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const lastPayoutDate = lastBulletin?.paid_at
+          ? lastBulletin.paid_at.split('T')[0]
+          : null;
+
+        const pendingDates = lastPayoutDate
+          ? uniqueDates.filter((d) => d > lastPayoutDate)
+          : uniqueDates;
+
+        setPendingPayoutDates(pendingDates);
+      }
+    }
+
     setShowPaymentModal(true);
   };
 
-  const handlePayment = async () => {
+  const formatPayoutDate = (dateStr: string) => {
+    const date = new Date(dateStr + 'T12:00:00');
+    return date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  };
+
+  const handlePayment = () => {
     if (!selectedPartner || !paymentAmount) return;
 
     const amount = parseFloat(paymentAmount);
@@ -136,55 +229,17 @@ export default function PartnerPaymentsScreen() {
       return;
     }
 
-    const partner = selectedPartner as any;
-    const omNumber = partner.orange_money_number;
-
-    if (!omNumber) {
+    if (!selectedPartner.orange_money_number) {
       showToast('Numéro Orange Money non configuré', 'error');
       return;
     }
 
-    const cleanNumber = omNumber.replace(/\D/g, '');
+    const cleanNumber = selectedPartner.orange_money_number.replace(/\D/g, '');
     const ussdCode = `*144*2*1*${cleanNumber}*${amount.toFixed(0)}#`;
 
-    Alert.alert(
-      'Paiement Orange Money',
-      `Voulez-vous initier le paiement de ${amount.toFixed(0)} FCFA vers ${omNumber}?\n\nCe code USSD va s'ouvrir:\n${ussdCode}`,
-      [
-        {
-          text: 'Annuler',
-          style: 'cancel',
-        },
-        {
-          text: 'Payer',
-          onPress: async () => {
-            try {
-              await Linking.openURL(`tel:${encodeURIComponent(ussdCode)}`);
+    Linking.openURL(`tel:${encodeURIComponent(ussdCode)}`).catch(() => {});
 
-              setTimeout(() => {
-                Alert.alert(
-                  'Confirmer le paiement',
-                  'Avez-vous complété le paiement Orange Money avec succès?',
-                  [
-                    {
-                      text: 'Non',
-                      style: 'cancel',
-                    },
-                    {
-                      text: 'Oui',
-                      onPress: () => markPaymentAsCompleted(amount),
-                    },
-                  ]
-                );
-              }, 3000);
-            } catch (error) {
-              console.error('Error opening USSD:', error);
-              showToast('Erreur lors de l\'ouverture du code USSD', 'error');
-            }
-          },
-        },
-      ]
-    );
+    setConfirmingPayment(true);
   };
 
   const markPaymentAsCompleted = async (amount: number) => {
@@ -193,40 +248,107 @@ export default function PartnerPaymentsScreen() {
     try {
       setProcessingPayment(true);
 
+      const { data: { user: adminUser } } = await supabase.auth.getUser();
+      const paidAt = new Date().toISOString();
+      const partner = selectedPartner;
+      const partnerProfile = partner.user_profiles as any;
+      const recipientName = 'shop_name' in partner
+        ? partner.shop_name
+        : `${partnerProfile.first_name} ${partnerProfile.last_name}`;
+
       if (activeTab === 'merchants') {
         const { error } = await supabase
           .from('merchant_daily_payouts')
           .update({
             payment_status: 'paid',
-            paid_at: new Date().toISOString(),
+            paid_at: paidAt,
           })
-          .eq('merchant_id', selectedPartner.id)
+          .eq('merchant_id', partner.id)
           .eq('payment_status', 'pending');
 
         if (error) throw error;
       } else {
-        const { error } = await supabase
+        const { error: balanceError } = await supabase
           .from('drivers')
           .update({ balance: 0 })
-          .eq('id', selectedPartner.id);
+          .eq('id', partner.id);
 
-        if (error) throw error;
+        if (balanceError) throw balanceError;
+      }
 
-        await supabase.from('driver_earnings').insert({
-          driver_id: selectedPartner.id,
-          amount: -amount,
-          earning_type: 'payout',
-          description: `Paiement effectué par admin - ${amount.toFixed(0)} FCFA`,
-          status: 'completed',
-          credited_at: new Date().toISOString(),
+      const periodLabel = pendingPayoutDates.length === 1
+        ? pendingPayoutDates[0]
+        : `${pendingPayoutDates[0]} — ${pendingPayoutDates[pendingPayoutDates.length - 1]}`;
+
+      const { data: bulletinRecord, error: bulletinError } = await supabase
+        .from('payment_bulletins')
+        .insert({
+          recipient_id: partner.user_id,
+          recipient_type: activeTab === 'merchants' ? 'merchant' : 'driver',
+          partner_id: partner.id,
+          amount,
+          payment_method: 'orange_money',
+          orange_money_number: partner.orange_money_number,
+          period_dates: pendingPayoutDates,
+          period_label: periodLabel,
+          admin_id: adminUser?.id ?? null,
+          paid_at: paidAt,
+        })
+        .select('id')
+        .single();
+
+      if (bulletinError) {
+        console.error('Bulletin save error:', bulletinError);
+      }
+
+      const notifTitle = 'Paiement reçu';
+      const datesText = pendingPayoutDates.map((d) => {
+        const date = new Date(d + 'T12:00:00');
+        return date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+      }).join(', ');
+      const notifMessage = `Votre paiement de ${amount.toLocaleString('fr-FR')} FCFA a été effectué pour : ${datesText}. Votre bulletin de paiement est disponible.`;
+
+      const { data: notif } = await supabase
+        .from('system_notifications')
+        .insert({
+          title: notifTitle,
+          message: notifMessage,
+          target_user_type: activeTab === 'merchants' ? 'merchant' : 'driver',
+          is_active: true,
+        })
+        .select('id')
+        .single();
+
+      if (notif) {
+        await supabase.from('user_notifications').insert({
+          user_id: partner.user_id,
+          notification_id: notif.id,
+          is_read: false,
         });
       }
 
-      showToast('Paiement enregistré avec succès', 'success');
+      const bulletinData: BulletinData = {
+        id: bulletinRecord?.id ?? 'temp',
+        recipient_type: activeTab === 'merchants' ? 'merchant' : 'driver',
+        amount,
+        payment_method: 'orange_money',
+        orange_money_number: partner.orange_money_number,
+        period_dates: pendingPayoutDates,
+        period_label: periodLabel,
+        paid_at: paidAt,
+        recipient_name: recipientName,
+        recipient_phone: partnerProfile.phone,
+        shop_name: 'shop_name' in partner ? partner.shop_name : undefined,
+      };
+
       setShowPaymentModal(false);
       setSelectedPartner(null);
       setPaymentAmount('');
+      setConfirmingPayment(false);
       loadPartners();
+
+      setCurrentBulletin(bulletinData);
+      setShowBulletin(true);
     } catch (error) {
       console.error('Error marking payment:', error);
       showToast('Erreur lors de l\'enregistrement du paiement', 'error');
@@ -290,10 +412,20 @@ export default function PartnerPaymentsScreen() {
               <Phone size={14} color="#64748b" />
               <Text style={styles.partnerPhone}>{profile.phone}</Text>
             </View>
-            {hasOMNumber && (
-              <View style={styles.partnerContactRow}>
-                <CreditCard size={14} color="#f97316" />
-                <Text style={styles.omNumber}>{partner.orange_money_number}</Text>
+            {hasOMNumber ? (
+              <View style={styles.omInfoContainer}>
+                <View style={styles.partnerContactRow}>
+                  <CreditCard size={14} color="#f97316" />
+                  <Text style={styles.omNumber}>{partner.orange_money_number}</Text>
+                </View>
+                {partner.orange_money_name && (
+                  <Text style={styles.omName}>{partner.orange_money_name}</Text>
+                )}
+              </View>
+            ) : (
+              <View style={styles.omMissingRow}>
+                <CreditCard size={13} color="#ef4444" />
+                <Text style={styles.omMissingText}>Pas de compte Orange Money</Text>
               </View>
             )}
           </View>
@@ -335,6 +467,12 @@ export default function PartnerPaymentsScreen() {
           <ArrowLeft size={24} color="#1e293b" />
         </TouchableOpacity>
         <Text style={styles.title}>Paiement des partenaires</Text>
+        <TouchableOpacity
+          onPress={() => router.push('/(admin)/bulletins')}
+          style={styles.historyButton}
+        >
+          <FileText size={20} color="#0ea5e9" />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.tabsContainer}>
@@ -448,14 +586,14 @@ export default function PartnerPaymentsScreen() {
         visible={showPaymentModal}
         transparent
         animationType="slide"
-        onRequestClose={() => !processingPayment && setShowPaymentModal(false)}
+        onRequestClose={() => { if (!processingPayment) { setShowPaymentModal(false); setConfirmingPayment(false); } }}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Effectuer un paiement</Text>
               {!processingPayment && (
-                <TouchableOpacity onPress={() => setShowPaymentModal(false)} style={styles.closeButton}>
+                <TouchableOpacity onPress={() => { setShowPaymentModal(false); setConfirmingPayment(false); }} style={styles.closeButton}>
                   <X size={24} color="#64748b" />
                 </TouchableOpacity>
               )}
@@ -481,14 +619,37 @@ export default function PartnerPaymentsScreen() {
                     <Text style={styles.modalPartnerPhone}>
                       {(selectedPartner.user_profiles as any).phone}
                     </Text>
-                    {selectedPartner.orange_money_number && (
+                    {selectedPartner.orange_money_number ? (
+                      <View style={styles.modalOMBlock}>
+                        <View style={styles.modalOMRow}>
+                          <CreditCard size={16} color="#f97316" />
+                          <Text style={styles.modalOMNumber}>{selectedPartner.orange_money_number}</Text>
+                        </View>
+                        {selectedPartner.orange_money_name && (
+                          <Text style={styles.modalOMName}>{selectedPartner.orange_money_name}</Text>
+                        )}
+                      </View>
+                    ) : (
                       <View style={styles.modalOMRow}>
-                        <CreditCard size={16} color="#f97316" />
-                        <Text style={styles.modalOMNumber}>{selectedPartner.orange_money_number}</Text>
+                        <CreditCard size={16} color="#ef4444" />
+                        <Text style={styles.modalOMNumberMissing}>Numéro OM non configuré</Text>
                       </View>
                     )}
                   </View>
                 </View>
+
+                {pendingPayoutDates.length > 0 && (
+                  <View style={styles.payoutDatesBox}>
+                    <Text style={styles.payoutDatesTitle}>
+                      {pendingPayoutDates.length === 1 ? 'Chiffre d\'affaires du jour' : `Chiffres d'affaires (${pendingPayoutDates.length} jours)`}
+                    </Text>
+                    {pendingPayoutDates.map((d) => (
+                      <Text key={d} style={styles.payoutDateRow}>
+                        {formatPayoutDate(d)} — 00h à 24h
+                      </Text>
+                    ))}
+                  </View>
+                )}
 
                 <View style={styles.paymentAmountContainer}>
                   <Text style={styles.paymentAmountLabel}>Montant du paiement</Text>
@@ -515,30 +676,56 @@ export default function PartnerPaymentsScreen() {
                   </Text>
                 </View>
 
-                <View style={styles.modalActions}>
-                  <TouchableOpacity
-                    style={[styles.modalButton, styles.cancelButton]}
-                    onPress={() => setShowPaymentModal(false)}
-                    disabled={processingPayment}
-                  >
-                    <Text style={styles.cancelButtonText}>Annuler</Text>
-                  </TouchableOpacity>
+                {confirmingPayment ? (
+                  <View style={styles.confirmBox}>
+                    <Text style={styles.confirmTitle}>Paiement effectué ?</Text>
+                    <Text style={styles.confirmSubtitle}>
+                      Confirmez-vous avoir complété le virement Orange Money avec succès ?
+                    </Text>
+                    <View style={styles.modalActions}>
+                      <TouchableOpacity
+                        style={[styles.modalButton, styles.cancelButton]}
+                        onPress={() => setConfirmingPayment(false)}
+                        disabled={processingPayment}
+                      >
+                        <Text style={styles.cancelButtonText}>Non</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.modalButton, styles.payButton]}
+                        onPress={() => markPaymentAsCompleted(parseFloat(paymentAmount))}
+                        disabled={processingPayment}
+                      >
+                        {processingPayment ? (
+                          <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                          <>
+                            <CheckCircle size={18} color="#fff" />
+                            <Text style={styles.payButtonText}>Oui, confirmer</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={[styles.modalButton, styles.cancelButton]}
+                      onPress={() => setShowPaymentModal(false)}
+                      disabled={processingPayment}
+                    >
+                      <Text style={styles.cancelButtonText}>Annuler</Text>
+                    </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={[styles.modalButton, styles.payButton]}
-                    onPress={handlePayment}
-                    disabled={processingPayment || !selectedPartner.orange_money_number}
-                  >
-                    {processingPayment ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <>
-                        <CreditCard size={18} color="#fff" />
-                        <Text style={styles.payButtonText}>Payer</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </View>
+                    <TouchableOpacity
+                      style={[styles.modalButton, styles.payButton]}
+                      onPress={handlePayment}
+                      disabled={processingPayment || !selectedPartner.orange_money_number}
+                    >
+                      <CreditCard size={18} color="#fff" />
+                      <Text style={styles.payButtonText}>Payer</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </>
             )}
           </View>
@@ -550,6 +737,12 @@ export default function PartnerPaymentsScreen() {
         message={toastMessage}
         type={toastType}
         onDismiss={() => setToastVisible(false)}
+      />
+
+      <PaymentBulletin
+        visible={showBulletin}
+        bulletin={currentBulletin}
+        onClose={() => setShowBulletin(false)}
       />
     </View>
   );
@@ -579,6 +772,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1e293b',
     flex: 1,
+  },
+  historyButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#e0f2fe',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
   },
   tabsContainer: {
     flexDirection: 'row',
@@ -773,6 +975,26 @@ const styles = StyleSheet.create({
     color: '#f97316',
     fontWeight: '500',
   },
+  omInfoContainer: {
+    gap: 2,
+  },
+  omName: {
+    fontSize: 12,
+    color: '#9a3412',
+    fontWeight: '600',
+    marginLeft: 18,
+  },
+  omMissingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  omMissingText: {
+    fontSize: 12,
+    color: '#ef4444',
+    fontWeight: '500',
+  },
   partnerCardFooter: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -903,6 +1125,20 @@ const styles = StyleSheet.create({
     color: '#f97316',
     fontWeight: '500',
   },
+  modalOMBlock: {
+    gap: 2,
+  },
+  modalOMName: {
+    fontSize: 13,
+    color: '#9a3412',
+    fontWeight: '700',
+    marginLeft: 22,
+  },
+  modalOMNumberMissing: {
+    fontSize: 14,
+    color: '#ef4444',
+    fontWeight: '500',
+  },
   paymentAmountContainer: {
     marginBottom: 20,
   },
@@ -920,18 +1156,44 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#e2e8f0',
     paddingHorizontal: 16,
+    overflow: 'hidden',
   },
   paymentAmountInput: {
     flex: 1,
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '700',
     color: '#1e293b',
-    paddingVertical: 16,
+    paddingVertical: 14,
+    minWidth: 0,
   },
   paymentAmountCurrency: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#64748b',
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#475569',
+    paddingLeft: 6,
+    flexShrink: 0,
+  },
+  payoutDatesBox: {
+    backgroundColor: '#eff6ff',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  payoutDatesTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2563eb',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  payoutDateRow: {
+    fontSize: 13,
+    color: '#1e40af',
+    fontWeight: '500',
+    paddingVertical: 2,
   },
   paymentInfoBox: {
     backgroundColor: '#fef3c7',
@@ -985,5 +1247,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+  },
+  confirmBox: {
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 8,
+  },
+  confirmTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#15803d',
+    marginBottom: 4,
+  },
+  confirmSubtitle: {
+    fontSize: 13,
+    color: '#166534',
+    marginBottom: 14,
+    lineHeight: 18,
   },
 });

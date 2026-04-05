@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Alert } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'expo-router';
-import { Package, MapPin, Clock, User, Trash2, Edit, XCircle, CheckCircle, ShoppingBag, Star, ChevronRight } from 'lucide-react-native';
+import { Package, MapPin, Clock, User, Trash2, CreditCard as Edit, Circle as XCircle, CircleCheck as CheckCircle, ShoppingBag, Star, ChevronRight } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
 import AppFooter from '@/components/AppFooter';
@@ -472,7 +472,7 @@ export default function OrdersScreen() {
                     <Text style={styles.locationText} numberOfLines={1} ellipsizeMode="tail">
                       {(order.delivery_latitude && order.delivery_longitude) && (
                         <Text style={styles.coordinatesText}>
-                          {`${order.delivery_longitude.toFixed(6)}, ${order.delivery_latitude.toFixed(6)}`}
+                          {`Long ${order.delivery_longitude.toFixed(6)}, Lat ${order.delivery_latitude.toFixed(6)}`}
                         </Text>
                       )}
                       {order.delivery_neighborhood && (

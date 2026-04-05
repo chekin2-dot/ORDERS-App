@@ -129,19 +129,21 @@ export default function ProfileScreen() {
             <MapPin size={20} color={profile?.latitude && profile?.longitude ? "#2563eb" : "#999"} />
             <View style={styles.infoText}>
               <Text style={styles.infoLabel}>Adresse de livraison</Text>
-              <Text style={[
-                styles.infoValue,
-                (!profile?.latitude || !profile?.longitude) && styles.infoValueInactive
-              ]}>
-                {profile?.address || 'Non spécifiée'}
-              </Text>
+              {(profile?.address || !(profile?.latitude && profile?.longitude)) && (
+                <Text style={[
+                  styles.infoValue,
+                  (!profile?.latitude || !profile?.longitude) && styles.infoValueInactive
+                ]}>
+                  {profile?.address || 'Non spécifiée'}
+                </Text>
+              )}
               <Text style={[
                 styles.gpsCoordinates,
                 profile?.latitude && profile?.longitude && styles.gpsCoordinatesActive
               ]}>
                 {profile?.latitude && profile?.longitude
-                  ? `GPS: ${profile.longitude.toFixed(6)}, ${profile.latitude.toFixed(6)}`
-                  : `Coordonnées GPS non disponibles (${profile?.longitude ? profile.longitude.toFixed(6) : '0.000000'}, ${profile?.latitude ? profile.latitude.toFixed(6) : '0.000000'})`
+                  ? `GPS: Long ${profile.longitude.toFixed(6)}, Lat ${profile.latitude.toFixed(6)}`
+                  : `Coordonnées GPS non disponibles`
                 }
               </Text>
             </View>

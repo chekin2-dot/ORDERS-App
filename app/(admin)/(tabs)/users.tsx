@@ -1,10 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, RefreshControl } from 'react-native';
-import { Search, Filter, Ban, CheckCircle, UserX, Eye, MapPin, Calendar, Download, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, RefreshControl, Platform } from 'react-native';
+import { Search, Ban, CircleCheck as CheckCircle, UserX, Eye, MapPin, Calendar, Download, RefreshCw, ChevronUp, ChevronDown, ShieldCheck, Clock } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import * as FileSystem from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
 
 interface User {
   id: string;
@@ -34,11 +32,22 @@ export default function UsersManagementScreen() {
   const [filterType, setFilterType] = useState<string>(params.filter as string || 'all');
   const [processingUser, setProcessingUser] = useState<string | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
     loadUsers();
+    loadPendingCount();
     subscribeToUsers();
   }, []);
+
+  const loadPendingCount = async () => {
+    try {
+      const { data } = await supabase.rpc('get_pending_subscriptions');
+      if (data) {
+        setPendingCount(Number(data.total) || 0);
+      }
+    } catch {}
+  };
 
   const subscribeToUsers = () => {
     const channel = supabase
@@ -65,99 +74,95 @@ export default function UsersManagementScreen() {
 
   const handleExportUsers = async () => {
     if (filteredUsers.length === 0) {
-      Alert.alert('Aucune donnée', 'Aucun utilisateur à exporter');
+      alert('Aucun utilisateur à exporter');
       return;
     }
-
-    Alert.alert(
-      'Exporter les Utilisateurs',
-      `${filteredUsers.length} utilisateurs seront exportés en Excel. Vous pourrez choisir où enregistrer le fichier.`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Exporter',
-          onPress: async () => {
-            setExporting(true);
-            try {
-              await performExport();
-            } finally {
-              setExporting(false);
-            }
-          },
-        },
-      ]
-    );
+    setExporting(true);
+    try {
+      await performExport();
+    } finally {
+      setExporting(false);
+    }
   };
 
   const performExport = async () => {
     try {
-      console.log('Starting user export...');
-      console.log('Filtered users count:', filteredUsers.length);
       const XLSX = require('xlsx');
       const timestamp = new Date().toISOString().split('T')[0];
       const fileName = `Users_Report_${timestamp}.xlsx`;
-      console.log('Export filename:', fileName);
 
       const exportData = filteredUsers.map((user) => ({
-        'Name': `${user.first_name} ${user.last_name}`,
-        'Phone': user.phone,
+        'Nom': `${user.first_name} ${user.last_name}`,
+        'Téléphone': user.phone,
         'Type': user.user_type,
-        'Status': user.status,
-        'Address': user.address || 'N/A',
-        'GPS Enabled': user.gps_enabled ? 'Yes' : 'No',
-        'Joined': new Date(user.created_at).toLocaleDateString(),
+        'Statut': user.status,
+        'Adresse': user.address || 'N/A',
+        'GPS': user.gps_enabled ? 'Oui' : 'Non',
+        'Inscription': new Date(user.created_at).toLocaleDateString(),
       }));
 
       const summaryData = [
-        ['ORDERS Platform - Users Report'],
-        ['Generated on:', new Date().toLocaleString()],
-        ['Filter:', filterType === 'all' ? 'All Users' : filterType],
-        ['Total Users:', filteredUsers.length.toString()],
+        ['Rapport des Utilisateurs'],
+        ['Généré le:', new Date().toLocaleString()],
+        ['Filtre:', filterType === 'all' ? 'Tous' : filterType],
+        ['Total:', filteredUsers.length.toString()],
         [''],
-        ['User Type Breakdown'],
+        ['Par type'],
         ['Clients:', users.filter(u => u.user_type === 'client').length.toString()],
-        ['Merchants:', users.filter(u => u.user_type === 'merchant').length.toString()],
-        ['Drivers:', users.filter(u => u.user_type === 'driver').length.toString()],
+        ['Commerçants:', users.filter(u => u.user_type === 'merchant').length.toString()],
+        ['Livreurs:', users.filter(u => u.user_type === 'driver').length.toString()],
         [''],
-        ['Status Breakdown'],
-        ['Active:', users.filter(u => u.status === 'active').length.toString()],
-        ['Banned:', users.filter(u => u.status === 'banned').length.toString()],
+        ['Par statut'],
+        ['Actifs:', users.filter(u => u.status === 'active').length.toString()],
+        ['Bloqués:', users.filter(u => u.status === 'banned').length.toString()],
       ];
 
       const wb = XLSX.utils.book_new();
 
       const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
       wsSummary['!cols'] = [{ wch: 25 }, { wch: 30 }];
-      XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
+      XLSX.utils.book_append_sheet(wb, wsSummary, 'Résumé');
 
       const wsUsers = XLSX.utils.json_to_sheet(exportData);
       wsUsers['!cols'] = [
         { wch: 25 }, { wch: 15 }, { wch: 12 },
-        { wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 15 }
+        { wch: 12 }, { wch: 30 }, { wch: 8 }, { wch: 15 }
       ];
-      XLSX.utils.book_append_sheet(wb, wsUsers, 'Users');
+      XLSX.utils.book_append_sheet(wb, wsUsers, 'Utilisateurs');
 
-      const wbout = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
-      const fileUri = FileSystem.documentDirectory + fileName;
-
-      await FileSystem.writeAsStringAsync(fileUri, wbout, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        await Sharing.shareAsync(fileUri, {
-          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          dialogTitle: 'Exporter le rapport des utilisateurs',
-          UTI: 'com.microsoft.excel.xlsx',
+      if (Platform.OS === 'web') {
+        const wbout = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+        const blob = new Blob([wbout], {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         });
-        Alert.alert('Succès', 'Rapport des utilisateurs exporté avec succès!');
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
       } else {
-        Alert.alert('Succès', `Rapport enregistré dans: ${fileUri}`);
+        const FileSystem = await import('expo-file-system');
+        const Sharing = await import('expo-sharing');
+        const wbout = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
+        const fileUri = FileSystem.documentDirectory + fileName;
+        await FileSystem.writeAsStringAsync(fileUri, wbout, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            dialogTitle: 'Exporter le rapport des utilisateurs',
+            UTI: 'com.microsoft.excel.xlsx',
+          });
+        }
       }
     } catch (error: any) {
       console.error('Error exporting users:', error);
-      Alert.alert('Erreur d\'exportation', error.message || 'Impossible d\'exporter le rapport des utilisateurs');
+      alert(error.message || 'Impossible d\'exporter le rapport des utilisateurs');
       throw error;
     }
   };
@@ -357,6 +362,26 @@ export default function UsersManagementScreen() {
           />
         </View>
       </View>
+
+      {pendingCount > 0 && (
+        <TouchableOpacity
+          style={styles.validationBanner}
+          onPress={() => router.push('/(admin)/subscriptions')}
+        >
+          <View style={styles.validationBannerLeft}>
+            <Clock size={20} color="#fff" />
+            <View>
+              <Text style={styles.validationBannerTitle}>
+                {pendingCount} abonnement{pendingCount > 1 ? 's' : ''} en attente
+              </Text>
+              <Text style={styles.validationBannerSub}>
+                Commerçants et livreurs à valider
+              </Text>
+            </View>
+          </View>
+          <ShieldCheck size={22} color="rgba(255,255,255,0.9)" />
+        </TouchableOpacity>
+      )}
 
       <View style={styles.filterContainer}>
         <TouchableOpacity
@@ -785,5 +810,37 @@ const styles = StyleSheet.create({
   },
   scrollButtonTop: {
     bottom: 154,
+  },
+  validationBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f59e0b',
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    shadowColor: '#f59e0b',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  validationBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  validationBannerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  validationBannerSub: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.85)',
+    marginTop: 1,
   },
 });

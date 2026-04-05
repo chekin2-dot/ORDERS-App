@@ -1,209 +1,232 @@
-import { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Dimensions, Platform, TouchableOpacity } from 'react-native';
-import { MessageCircle, X } from 'lucide-react-native';
-import { BlurView } from 'expo-blur';
+import { useEffect, useRef, useCallback } from 'react';
+import { View, Text, StyleSheet, Animated, Platform, TouchableOpacity, Vibration } from 'react-native';
+import { MessageCircle, X, ChevronRight } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface MessageAlertProps {
   visible: boolean;
   message: string;
   senderName: string;
   onDismiss: () => void;
+  onPress?: () => void;
 }
 
-export function MessageAlert({ visible, message, senderName, onDismiss }: MessageAlertProps) {
+export function MessageAlert({ visible, message, senderName, onDismiss, onPress }: MessageAlertProps) {
+  const insets = useSafeAreaInsets();
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(-150)).current;
-  const scaleAnim = useRef(new Animated.Value(0.8)).current;
+  const slideAnim = useRef(new Animated.Value(-130)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const glowAnim = useRef(new Animated.Value(0)).current;
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
+
+  const stopPulse = useCallback(() => {
+    pulseLoopRef.current?.stop();
+    pulseAnim.setValue(1);
+    glowAnim.setValue(0);
+  }, []);
+
+  const startPulse = useCallback(() => {
+    stopPulse();
+    pulseLoopRef.current = Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(pulseAnim, { toValue: 1.04, duration: 420, useNativeDriver: true }),
+          Animated.timing(glowAnim, { toValue: 1, duration: 420, useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.timing(pulseAnim, { toValue: 1, duration: 420, useNativeDriver: true }),
+          Animated.timing(glowAnim, { toValue: 0, duration: 420, useNativeDriver: true }),
+        ]),
+      ])
+    );
+    pulseLoopRef.current.start();
+  }, []);
+
+  const dismissAlert = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    stopPulse();
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: -130, duration: 250, useNativeDriver: true }),
+    ]).start(() => onDismiss());
+  }, [onDismiss]);
 
   useEffect(() => {
     if (visible) {
+      if (timerRef.current) clearTimeout(timerRef.current);
+
       Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.spring(slideAnim, {
-          toValue: 0,
-          friction: 8,
-          tension: 50,
-          useNativeDriver: true,
-        }),
-        Animated.spring(scaleAnim, {
-          toValue: 1,
-          friction: 8,
-          tension: 50,
-          useNativeDriver: true,
-        }),
-      ]).start();
+        Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
+        Animated.spring(slideAnim, { toValue: 0, friction: 7, tension: 80, useNativeDriver: true }),
+      ]).start(() => startPulse());
 
-      const timeout = setTimeout(() => {
-        dismissAlert();
-      }, 5000);
+      if (Platform.OS === 'android') {
+        Vibration.vibrate([0, 400, 100, 400]);
+      }
 
-      return () => {
-        clearTimeout(timeout);
-      };
+      timerRef.current = setTimeout(dismissAlert, 12000);
+      return () => { if (timerRef.current) clearTimeout(timerRef.current); };
     }
   }, [visible]);
 
-  const dismissAlert = () => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: -150,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(scaleAnim, {
-        toValue: 0.8,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      onDismiss();
-    });
-  };
-
   if (!visible) return null;
+
+  const glowOpacity = glowAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.55] });
+  const topOffset = insets.top > 0 ? insets.top + 8 : Platform.OS === 'ios' ? 54 : 12;
 
   return (
     <Animated.View
       style={[
         styles.container,
         {
+          top: topOffset,
           opacity: fadeAnim,
-          transform: [
-            { translateY: slideAnim },
-            { scale: scaleAnim }
-          ],
+          transform: [{ translateY: slideAnim }, { scale: pulseAnim }],
         },
       ]}
     >
-      {Platform.OS === 'ios' ? (
-        <BlurView intensity={80} tint="dark" style={styles.blurContainer}>
-          <View style={styles.alert}>
-            <View style={styles.iconContainer}>
-              <View style={styles.iconBackground}>
-                <MessageCircle size={24} color="#fff" strokeWidth={2.5} />
-              </View>
-            </View>
-            <View style={styles.content}>
-              <Text style={styles.sender} numberOfLines={1}>{senderName}</Text>
-              <Text style={styles.message} numberOfLines={2}>
-                {message}
-              </Text>
-            </View>
-            <TouchableOpacity
-              onPress={dismissAlert}
-              style={styles.closeButton}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <X size={18} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        </BlurView>
-      ) : (
-        <View style={[styles.alert, styles.androidAlert]}>
+      <Animated.View style={[styles.glowRing, { opacity: glowOpacity }]} />
+      <TouchableOpacity
+        style={styles.alert}
+        onPress={() => { dismissAlert(); onPress?.(); }}
+        activeOpacity={0.92}
+      >
+        <View style={styles.iconWrapper}>
           <View style={styles.iconContainer}>
-            <View style={styles.iconBackground}>
-              <MessageCircle size={24} color="#fff" strokeWidth={2.5} />
-            </View>
+            <MessageCircle size={22} color="#fff" strokeWidth={2.5} />
           </View>
-          <View style={styles.content}>
-            <Text style={styles.sender} numberOfLines={1}>{senderName}</Text>
-            <Text style={styles.message} numberOfLines={2}>
-              {message}
-            </Text>
+          <View style={styles.iconPulse} />
+        </View>
+
+        <View style={styles.content}>
+          <View style={styles.headerRow}>
+            <Text style={styles.appLabel}>Nouveau message</Text>
+            <View style={styles.liveDot} />
           </View>
+          <Text style={styles.senderName} numberOfLines={1}>{senderName}</Text>
+          <Text style={styles.message} numberOfLines={2}>{message}</Text>
+        </View>
+
+        <View style={styles.rightActions}>
+          <ChevronRight size={18} color="rgba(255,255,255,0.7)" />
           <TouchableOpacity
-            onPress={dismissAlert}
+            onPress={(e) => { e.stopPropagation(); dismissAlert(); }}
             style={styles.closeButton}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <X size={18} color="#fff" />
+            <X size={16} color="rgba(255,255,255,0.8)" />
           </TouchableOpacity>
         </View>
-      )}
+      </TouchableOpacity>
     </Animated.View>
   );
 }
 
-const { width } = Dimensions.get('window');
-
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 50 : 10,
     left: 12,
     right: 12,
-    zIndex: 9999,
-    elevation: 1000,
+    zIndex: 99999,
+    elevation: 9999,
   },
-  blurContainer: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+  glowRing: {
+    position: 'absolute',
+    top: -4,
+    left: -4,
+    right: -4,
+    bottom: -4,
+    borderRadius: 24,
+    backgroundColor: '#3b82f6',
   },
   alert: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    gap: 12,
-  },
-  androidAlert: {
-    backgroundColor: 'rgba(30, 41, 59, 0.98)',
+    backgroundColor: '#0f172a',
     borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
+    padding: 14,
+    gap: 12,
+    shadowColor: '#3b82f6',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.5,
     shadowRadius: 16,
-    elevation: 16,
+    elevation: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(59, 130, 246, 0.5)',
+    overflow: 'hidden',
   },
-  iconContainer: {
+  iconWrapper: {
+    position: 'relative',
+    width: 46,
+    height: 46,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  iconBackground: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(59, 130, 246, 0.9)',
+  iconContainer: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#3b82f6',
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#3b82f6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.8,
     shadowRadius: 8,
     elevation: 8,
   },
+  iconPulse: {
+    position: 'absolute',
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 2,
+    borderColor: 'rgba(59, 130, 246, 0.4)',
+  },
   content: {
     flex: 1,
-    gap: 4,
+    gap: 2,
   },
-  sender: {
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  appLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#3b82f6',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#22c55e',
+  },
+  senderName: {
     fontSize: 15,
     fontWeight: '700',
     color: '#fff',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
   message: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.9)',
-    lineHeight: 20,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.85)',
+    lineHeight: 18,
+    marginTop: 1,
+  },
+  rightActions: {
+    alignItems: 'center',
+    gap: 8,
   },
   closeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255,255,255,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
   },

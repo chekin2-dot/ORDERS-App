@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
-import { Users, ShoppingCart, DollarSign, TrendingUp, AlertCircle, CheckCircle, Clock, Ban, ChevronUp, ChevronDown } from 'lucide-react-native';
+import { Users, ShoppingCart, DollarSign, TrendingUp, CircleAlert as AlertCircle, CircleCheck as CheckCircle, Clock, Ban, ChevronUp, ChevronDown, ShieldCheck } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
 import SystemNotificationBanner from '@/components/SystemNotificationBanner';
@@ -34,6 +34,7 @@ export default function AdminDashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [adminInfo, setAdminInfo] = useState<any>(null);
   const [activityLimit, setActivityLimit] = useState(10);
+  const [pendingSubscriptions, setPendingSubscriptions] = useState(0);
   const [hasMoreActivity, setHasMoreActivity] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
@@ -83,6 +84,11 @@ export default function AdminDashboardScreen() {
         }));
         setRecentActivity(activity);
         setHasMoreActivity(ordersData.length >= activityLimit && activityLimit < 1000);
+      }
+
+      const { data: pendingData } = await supabase.rpc('get_pending_subscriptions');
+      if (pendingData) {
+        setPendingSubscriptions(Number(pendingData.total) || 0);
       }
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -176,6 +182,33 @@ export default function AdminDashboardScreen() {
         scrollEventThrottle={16}
       >
         <SystemNotificationBanner />
+
+        <TouchableOpacity
+          style={[styles.pendingSubsCard, pendingSubscriptions === 0 && styles.pendingSubsCardEmpty]}
+          onPress={() => router.push('/(admin)/subscriptions')}
+        >
+          <View style={styles.pendingSubsLeft}>
+            <View style={[styles.pendingSubsIcon, pendingSubscriptions === 0 && styles.pendingSubsIconEmpty]}>
+              <ShieldCheck size={22} color="#fff" />
+            </View>
+            <View>
+              <Text style={styles.pendingSubsTitle}>
+                {pendingSubscriptions === 0
+                  ? '0 abonnement à valider'
+                  : `${pendingSubscriptions} abonnement${pendingSubscriptions > 1 ? 's' : ''} à valider`}
+              </Text>
+              <Text style={styles.pendingSubsSub}>
+                {pendingSubscriptions === 0
+                  ? 'Tous les comptes sont validés'
+                  : 'Commerçants et livreurs en attente'}
+              </Text>
+            </View>
+          </View>
+          <View style={[styles.pendingSubsBadge, pendingSubscriptions === 0 && styles.pendingSubsBadgeEmpty]}>
+            <Text style={styles.pendingSubsBadgeText}>{pendingSubscriptions}</Text>
+          </View>
+        </TouchableOpacity>
+
         <Text style={styles.sectionTitle}>Vue d'ensemble</Text>
 
         <View style={styles.statsGrid}>
@@ -226,20 +259,22 @@ export default function AdminDashboardScreen() {
           </View>
         </View>
 
-        {(stats?.pending_verifications || 0) > 0 && (
-          <TouchableOpacity
-            style={styles.alertCard}
-            onPress={() => router.push('/(admin)/(tabs)/users?filter=pending')}
-          >
-            <AlertCircle size={24} color="#f59e0b" />
-            <View style={styles.alertContent}>
-              <Text style={styles.alertTitle}>Vérifications en Attente</Text>
-              <Text style={styles.alertText}>
-                {stats?.pending_verifications} livreur(s) en attente de vérification
-              </Text>
-            </View>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          style={[styles.alertCard, (stats?.pending_verifications || 0) === 0 && styles.alertCardEmpty]}
+          onPress={() => router.push('/(admin)/subscriptions')}
+        >
+          <AlertCircle size={24} color={(stats?.pending_verifications || 0) === 0 ? '#10b981' : '#f59e0b'} />
+          <View style={styles.alertContent}>
+            <Text style={[styles.alertTitle, (stats?.pending_verifications || 0) === 0 && styles.alertTitleEmpty]}>
+              Vérifications en Attente
+            </Text>
+            <Text style={styles.alertText}>
+              {(stats?.pending_verifications || 0) === 0
+                ? 'Aucune !'
+                : `${stats?.pending_verifications} livreur(s) en attente de vérification`}
+            </Text>
+          </View>
+        </TouchableOpacity>
 
         {(stats?.blocked_users || 0) > 0 && (
           <TouchableOpacity
@@ -588,5 +623,81 @@ const styles = StyleSheet.create({
   },
   scrollButtonTop: {
     bottom: 154,
+  },
+  pendingSubsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#1e293b',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  pendingSubsLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  pendingSubsIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#f59e0b',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#f59e0b',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  pendingSubsTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  pendingSubsSub: {
+    fontSize: 12,
+    color: '#94a3b8',
+    marginTop: 2,
+  },
+  pendingSubsBadge: {
+    minWidth: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f59e0b',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  pendingSubsBadgeText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  pendingSubsCardEmpty: {
+    backgroundColor: '#f0fdf4',
+    borderColor: '#bbf7d0',
+  },
+  pendingSubsIconEmpty: {
+    backgroundColor: '#10b981',
+    shadowColor: '#10b981',
+  },
+  pendingSubsBadgeEmpty: {
+    backgroundColor: '#10b981',
+  },
+  alertCardEmpty: {
+    backgroundColor: '#f0fdf4',
+    borderColor: '#bbf7d0',
+  },
+  alertTitleEmpty: {
+    color: '#10b981',
   },
 });

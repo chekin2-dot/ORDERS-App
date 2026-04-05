@@ -440,7 +440,7 @@ ${itemsList}
                 <Text style={styles.coordinatesLabel}>Client GPS Position:</Text>
               </View>
               <Text style={styles.coordinatesValue}>
-                {order.client_gps_latitude.toFixed(6)}, {order.client_gps_longitude.toFixed(6)}
+                Long {order.client_gps_longitude.toFixed(6)}, Lat {order.client_gps_latitude.toFixed(6)}
               </Text>
               <TouchableOpacity
                 style={styles.clientMapButton}

@@ -59,6 +59,10 @@ export default function AdminLayout() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="user-details" />
       <Stack.Screen name="order-details" />
+      <Stack.Screen name="subscriptions" />
+      <Stack.Screen name="monthly-expenses" />
+      <Stack.Screen name="partner-payments" />
+      <Stack.Screen name="admin-tools" />
     </Stack>
   );
 }

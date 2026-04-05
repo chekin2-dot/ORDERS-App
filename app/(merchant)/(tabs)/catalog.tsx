@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, FlatList, Alert, Modal, Image, ActivityIndicator, Platform } from 'react-native';
-import { Search, X, Trash2, CreditCard as Edit3, Check, Bone as XIcon, Plus, Package, Clock, Camera, ImageIcon } from 'lucide-react-native';
+import { Search, X, Trash2, CreditCard as Edit3, Check, Bone as XIcon, Plus, Package, Clock, Camera, Image as ImageIcon, Video, Play } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -29,6 +29,8 @@ interface MerchantProduct {
   is_available: boolean;
   quantity: number | null;
   image_url?: string | null;
+  image_urls?: string[] | null;
+  video_url?: string | null;
   updated_at: string;
 }
 
@@ -47,6 +49,8 @@ export default function MerchantCatalogScreen() {
   const [editedQuantity, setEditedQuantity] = useState('');
   const [editedDescription, setEditedDescription] = useState('');
   const [editedImage, setEditedImage] = useState<string | null>(null);
+  const [editedExtraImages, setEditedExtraImages] = useState<(string | null)[]>([null, null, null]);
+  const [editedVideo, setEditedVideo] = useState<string | null>(null);
   const [uploadingEditImage, setUploadingEditImage] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAddCustomModal, setShowAddCustomModal] = useState(false);
@@ -57,6 +61,7 @@ export default function MerchantCatalogScreen() {
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [customProductImage, setCustomProductImage] = useState<string | null>(null);
+  const [customProductVideo, setCustomProductVideo] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
 
   useEffect(() => {
@@ -325,6 +330,13 @@ export default function MerchantCatalogScreen() {
     setEditedQuantity(product.quantity !== null ? product.quantity.toString() : '');
     setEditedDescription(product.description || '');
     setEditedImage(product.image_url || null);
+    const extras = product.image_urls ?? [];
+    setEditedExtraImages([
+      extras[0] ?? null,
+      extras[1] ?? null,
+      extras[2] ?? null,
+    ]);
+    setEditedVideo(product.video_url || null);
     setShowEditModal(true);
   };
 
@@ -353,12 +365,28 @@ export default function MerchantCatalogScreen() {
 
       let imageUrl = editingProduct.image_url;
 
-      // Check if a new image was selected (editedImage doesn't start with http)
       if (editedImage && !editedImage.startsWith('http')) {
         imageUrl = await uploadProductImage(editedImage);
-      } else if (editedImage === null && editingProduct.image_url) {
-        // Image was removed
+      } else if (editedImage === null) {
         imageUrl = null;
+      }
+
+      const uploadedExtras: string[] = [];
+      for (let i = 0; i < editedExtraImages.length; i++) {
+        const uri = editedExtraImages[i];
+        if (uri && !uri.startsWith('http')) {
+          const uploaded = await uploadProductImage(uri);
+          if (uploaded) uploadedExtras.push(uploaded);
+        } else if (uri && uri.startsWith('http')) {
+          uploadedExtras.push(uri);
+        }
+      }
+
+      let videoUrl = editingProduct.video_url ?? null;
+      if (editedVideo && !editedVideo.startsWith('http')) {
+        videoUrl = await uploadProductVideo(editedVideo);
+      } else if (editedVideo === null) {
+        videoUrl = null;
       }
 
       const { data, error } = await supabase
@@ -369,6 +397,8 @@ export default function MerchantCatalogScreen() {
           quantity: newQuantity,
           description: editedDescription.trim(),
           image_url: imageUrl,
+          image_urls: uploadedExtras,
+          video_url: videoUrl,
         })
         .eq('id', editingProduct.id)
         .select()
@@ -385,6 +415,8 @@ export default function MerchantCatalogScreen() {
       setShowEditModal(false);
       setEditingProduct(null);
       setEditedImage(null);
+      setEditedExtraImages([null, null, null]);
+      setEditedVideo(null);
       setEditedDescription('');
 
       if (Platform.OS === 'web') {
@@ -412,6 +444,8 @@ export default function MerchantCatalogScreen() {
     setEditedQuantity('');
     setEditedDescription('');
     setEditedImage(null);
+    setEditedExtraImages([null, null, null]);
+    setEditedVideo(null);
   };
 
   const formatRelativeTime = (dateString: string) => {
@@ -430,31 +464,58 @@ export default function MerchantCatalogScreen() {
     return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
   };
 
-  const pickImageFromCamera = async (forEdit: boolean = false) => {
+  const pickFileWeb = (accept: string): Promise<string | null> => {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = accept;
+      input.onchange = (e: any) => {
+        const file = e.target?.files?.[0];
+        if (!file) { resolve(null); return; }
+        const url = URL.createObjectURL(file);
+        resolve(url);
+      };
+      input.oncancel = () => resolve(null);
+      input.click();
+    });
+  };
+
+  const applyPickedImage = (target: 'main' | 'extra0' | 'extra1' | 'extra2' | 'custom', uri: string) => {
+    if (target === 'main') {
+      setEditedImage(uri);
+    } else if (target === 'custom') {
+      setCustomProductImage(uri);
+    } else {
+      const idx = parseInt(target.replace('extra', ''));
+      setEditedExtraImages(prev => {
+        const next = [...prev];
+        next[idx] = uri;
+        return next;
+      });
+    }
+  };
+
+  const pickImageFromCamera = async (target: 'main' | 'extra0' | 'extra1' | 'extra2' | 'custom' = 'main') => {
+    if (Platform.OS === 'web') {
+      const uri = await pickFileWeb('image/*');
+      if (uri) applyPickedImage(target, uri);
+      return;
+    }
     try {
       const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
-
       if (!permissionResult.granted) {
         Alert.alert('Permission requise', 'Vous devez autoriser l\'accès à la caméra pour prendre une photo');
         return;
       }
-
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'] as any,
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.8,
       });
-
       if (!result.canceled && result.assets[0]) {
-        if (forEdit) {
-          setEditedImage(result.assets[0].uri);
-        } else {
-          setCustomProductImage(result.assets[0].uri);
-        }
-        if (Platform.OS !== 'web') {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        }
+        applyPickedImage(target, result.assets[0].uri);
+        if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
     } catch (error) {
       console.error('Error picking image from camera:', error);
@@ -462,35 +523,110 @@ export default function MerchantCatalogScreen() {
     }
   };
 
-  const pickImageFromLibrary = async (forEdit: boolean = false) => {
+  const pickImageFromLibrary = async (target: 'main' | 'extra0' | 'extra1' | 'extra2' | 'custom' = 'main') => {
+    if (Platform.OS === 'web') {
+      const uri = await pickFileWeb('image/*');
+      if (uri) applyPickedImage(target, uri);
+      return;
+    }
     try {
       const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
       if (!permissionResult.granted) {
         Alert.alert('Permission requise', 'Vous devez autoriser l\'accès à la galerie pour sélectionner une photo');
         return;
       }
-
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'] as any,
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.8,
       });
-
       if (!result.canceled && result.assets[0]) {
-        if (forEdit) {
-          setEditedImage(result.assets[0].uri);
-        } else {
-          setCustomProductImage(result.assets[0].uri);
-        }
-        if (Platform.OS !== 'web') {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        }
+        applyPickedImage(target, result.assets[0].uri);
+        if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
     } catch (error) {
       console.error('Error picking image from library:', error);
       Alert.alert('Erreur', 'Impossible de sélectionner une photo');
+    }
+  };
+
+  const pickVideoFromCamera = async () => {
+    if (Platform.OS === 'web') {
+      const uri = await pickFileWeb('video/*');
+      if (uri) setEditedVideo(uri);
+      return;
+    }
+    try {
+      const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!cameraPermission.granted) {
+        Alert.alert('Permission requise', 'Vous devez autoriser l\'accès à la caméra pour enregistrer une vidéo');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['videos'] as any,
+        videoMaxDuration: 10,
+      });
+      if (!result.canceled && result.assets[0]) {
+        setEditedVideo(result.assets[0].uri);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+    } catch (error) {
+      console.error('Error picking video from camera:', error);
+      Alert.alert('Erreur', 'Impossible d\'enregistrer une vidéo');
+    }
+  };
+
+  const pickVideoFromLibrary = async () => {
+    if (Platform.OS === 'web') {
+      const uri = await pickFileWeb('video/*');
+      if (uri) setEditedVideo(uri);
+      return;
+    }
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        Alert.alert('Permission requise', 'Vous devez autoriser l\'accès à la galerie pour sélectionner une vidéo');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['videos'] as any,
+        allowsEditing: true,
+        videoMaxDuration: 10,
+      });
+      if (!result.canceled && result.assets[0]) {
+        setEditedVideo(result.assets[0].uri);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+    } catch (error) {
+      console.error('Error picking video from library:', error);
+      Alert.alert('Erreur', 'Impossible de sélectionner une vidéo');
+    }
+  };
+
+  const pickCustomVideoFromCamera = async () => {
+    if (Platform.OS === 'web') {
+      const uri = await pickFileWeb('video/*');
+      if (uri) setCustomProductVideo(uri);
+      return;
+    }
+    try {
+      const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!cameraPermission.granted) {
+        Alert.alert('Permission requise', 'Vous devez autoriser l\'accès à la caméra pour enregistrer une vidéo');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['videos'] as any,
+        videoMaxDuration: 10,
+      });
+      if (!result.canceled && result.assets[0]) {
+        setCustomProductVideo(result.assets[0].uri);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+    } catch (error) {
+      console.error('Error recording custom video:', error);
+      Alert.alert('Erreur', 'Impossible d\'enregistrer la vidéo');
     }
   };
 
@@ -519,6 +655,29 @@ export default function MerchantCatalogScreen() {
       return urlData.publicUrl;
     } catch (error) {
       console.error('Error uploading image:', error);
+      throw error;
+    }
+  };
+
+  const uploadProductVideo = async (videoUri: string): Promise<string | null> => {
+    if (!user?.id) return null;
+    try {
+      const response = await fetch(videoUri);
+      const blob = await response.blob();
+      const fileName = `${user.id}/product-video-${Date.now()}.mp4`;
+      const { error } = await supabase.storage
+        .from('merchant-photos')
+        .upload(fileName, blob, {
+          contentType: 'video/mp4',
+          upsert: false,
+        });
+      if (error) throw error;
+      const { data: urlData } = supabase.storage
+        .from('merchant-photos')
+        .getPublicUrl(fileName);
+      return urlData.publicUrl;
+    } catch (error) {
+      console.error('Error uploading video:', error);
       throw error;
     }
   };
@@ -553,6 +712,11 @@ export default function MerchantCatalogScreen() {
         imageUrl = await uploadProductImage(customProductImage);
       }
 
+      let videoUrl: string | null = null;
+      if (customProductVideo) {
+        videoUrl = await uploadProductVideo(customProductVideo);
+      }
+
       const { data, error } = await supabase
         .from('products')
         .insert({
@@ -562,6 +726,7 @@ export default function MerchantCatalogScreen() {
           price: price,
           category: customProductCategory.trim(),
           image_url: imageUrl,
+          video_url: videoUrl,
           is_available: true,
         })
         .select()
@@ -576,6 +741,7 @@ export default function MerchantCatalogScreen() {
       setCustomProductPrice('');
       setCustomProductCategory('');
       setCustomProductImage(null);
+      setCustomProductVideo(null);
       Alert.alert('Succès', 'Produit ajouté avec succès');
     } catch (error) {
       console.error('Error adding custom product:', error);
@@ -592,6 +758,7 @@ export default function MerchantCatalogScreen() {
     setCustomProductPrice('');
     setCustomProductCategory('');
     setCustomProductImage(null);
+    setCustomProductVideo(null);
     setShowCategoryDropdown(false);
   };
 
@@ -706,6 +873,7 @@ export default function MerchantCatalogScreen() {
                     </View>
                   </View>
                   <View style={styles.productActions}>
+                    <View style={styles.productActionButtons}>
                     <TouchableOpacity
                       style={styles.editButton}
                       onPress={() => handleEditProduct(product)}
@@ -737,6 +905,20 @@ export default function MerchantCatalogScreen() {
                     >
                       <Trash2 size={20} color="#ef4444" />
                     </TouchableOpacity>
+                    </View>
+                    <View style={styles.productThumbnail}>
+                      {product.image_url ? (
+                        <Image
+                          source={{ uri: product.image_url }}
+                          style={styles.productThumbnailImage}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View style={styles.productThumbnailPlaceholder}>
+                          <ImageIcon size={24} color="#ccc" />
+                        </View>
+                      )}
+                    </View>
                   </View>
                 </View>
               </View>
@@ -782,7 +964,7 @@ export default function MerchantCatalogScreen() {
               </View>
 
               <View style={styles.modalInputGroup}>
-                <Text style={styles.modalLabel}>Photo du produit</Text>
+                <Text style={styles.modalLabel}>Photo principale</Text>
                 {editedImage ? (
                   <View style={styles.imagePreviewContainer}>
                     <Image
@@ -801,16 +983,107 @@ export default function MerchantCatalogScreen() {
                   <View style={styles.imagePickerButtons}>
                     <TouchableOpacity
                       style={styles.imagePickerButton}
-                      onPress={() => pickImageFromCamera(true)}
+                      onPress={() => pickImageFromCamera('main')}
                     >
                       <Camera size={24} color="#2563eb" />
-                      <Text style={styles.imagePickerButtonText}>Prendre une photo</Text>
+                      <Text style={styles.imagePickerButtonText}>Caméra</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.imagePickerButton}
-                      onPress={() => pickImageFromLibrary(true)}
+                      onPress={() => pickImageFromLibrary('main')}
                     >
                       <ImageIcon size={24} color="#2563eb" />
+                      <Text style={styles.imagePickerButtonText}>Galerie</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.modalInputGroup}>
+                <Text style={styles.modalLabel}>Photos supplémentaires (3 max)</Text>
+                <View style={styles.extraImagesRow}>
+                  {([0, 1, 2] as const).map((idx) => {
+                    const uri = editedExtraImages[idx];
+                    const target = `extra${idx}` as 'extra0' | 'extra1' | 'extra2';
+                    return (
+                      <View key={idx} style={styles.extraImageSlot}>
+                        {uri ? (
+                          <View style={styles.extraImagePreview}>
+                            <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                            <TouchableOpacity
+                              style={styles.extraImageRemove}
+                              onPress={() => {
+                                setEditedExtraImages(prev => {
+                                  const next = [...prev];
+                                  next[idx] = null;
+                                  return next;
+                                });
+                              }}
+                            >
+                              <X size={12} color="#fff" />
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <TouchableOpacity
+                            style={styles.extraImageAdd}
+                            onPress={() => {
+                              if (Platform.OS === 'web') {
+                                pickImageFromLibrary(target);
+                              } else {
+                                Alert.alert('Ajouter une photo', '', [
+                                  { text: 'Caméra', onPress: () => pickImageFromCamera(target) },
+                                  { text: 'Galerie', onPress: () => pickImageFromLibrary(target) },
+                                  { text: 'Annuler', style: 'cancel' },
+                                ]);
+                              }
+                            }}
+                          >
+                            <Plus size={20} color="#999" />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <View style={styles.modalInputGroup}>
+                <Text style={styles.modalLabel}>Vidéo courte (10 sec max)</Text>
+                {editedVideo ? (
+                  <View style={styles.videoPreviewContainer}>
+                    <View style={styles.videoPreviewInner}>
+                      <Play size={28} color="#fff" />
+                      <Text style={styles.videoPreviewLabel}>Vidéo sélectionnée</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.removeImageButton}
+                      onPress={() => setEditedVideo(null)}
+                    >
+                      <X size={16} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                ) : Platform.OS === 'web' ? (
+                  <TouchableOpacity
+                    style={[styles.imagePickerButton, { alignSelf: 'flex-start' }]}
+                    onPress={pickVideoFromLibrary}
+                  >
+                    <Video size={24} color="#2563eb" />
+                    <Text style={styles.imagePickerButtonText}>Choisir une vidéo</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.imagePickerButtons}>
+                    <TouchableOpacity
+                      style={styles.imagePickerButton}
+                      onPress={pickVideoFromCamera}
+                    >
+                      <Camera size={24} color="#2563eb" />
+                      <Text style={styles.imagePickerButtonText}>Filmer</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.imagePickerButton}
+                      onPress={pickVideoFromLibrary}
+                    >
+                      <Video size={24} color="#2563eb" />
                       <Text style={styles.imagePickerButtonText}>Galerie</Text>
                     </TouchableOpacity>
                   </View>
@@ -922,22 +1195,46 @@ export default function MerchantCatalogScreen() {
                     </TouchableOpacity>
                   </View>
                 ) : (
-                  <View style={styles.imagePickerButtons}>
+                  <View style={styles.customMediaPickerButtons}>
                     <TouchableOpacity
                       style={styles.imagePickerButton}
-                      onPress={() => pickImageFromCamera(false)}
+                      onPress={() => pickImageFromCamera('custom')}
                     >
                       <Camera size={24} color="#2563eb" />
                       <Text style={styles.imagePickerButtonText}>Prendre une photo</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.imagePickerButton}
-                      onPress={() => pickImageFromLibrary(false)}
+                      onPress={() => pickImageFromLibrary('custom')}
                     >
                       <ImageIcon size={24} color="#2563eb" />
                       <Text style={styles.imagePickerButtonText}>Galerie</Text>
                     </TouchableOpacity>
                   </View>
+                )}
+
+                {customProductVideo ? (
+                  <View style={styles.videoPreviewContainer}>
+                    <View style={styles.videoPreviewBadge}>
+                      <Play size={16} color="#fff" />
+                      <Text style={styles.videoPreviewText}>Vidéo enregistrée (10s)</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.removeVideoButton}
+                      onPress={() => setCustomProductVideo(null)}
+                    >
+                      <X size={14} color="#dc2626" />
+                      <Text style={styles.removeVideoText}>Supprimer la vidéo</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.videoPickerButton}
+                    onPress={pickCustomVideoFromCamera}
+                  >
+                    <Video size={22} color="#059669" />
+                    <Text style={styles.videoPickerButtonText}>Faire une video 10s</Text>
+                  </TouchableOpacity>
                 )}
               </View>
 
@@ -1217,8 +1514,34 @@ const styles = StyleSheet.create({
     color: '#2563eb',
   },
   productActions: {
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  productActionButtons: {
     flexDirection: 'row',
     gap: 8,
+  },
+  productThumbnail: {
+    width: 64,
+    height: 64,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  productThumbnailImage: {
+    width: 64,
+    height: 64,
+  },
+  productThumbnailPlaceholder: {
+    width: 64,
+    height: 64,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderStyle: 'dashed',
   },
   editButton: {
     padding: 8,
@@ -1399,5 +1722,122 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#2563eb',
     textAlign: 'center',
+  },
+  extraImagesRow: {
+    flexDirection: 'row',
+    gap: 10,
+    height: 90,
+  },
+  extraImageSlot: {
+    flex: 1,
+    height: 90,
+  },
+  extraImagePreview: {
+    width: '100%',
+    height: 90,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: '#f0f0f0',
+  },
+  extraImageRemove: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: 'rgba(239,68,68,0.9)',
+    borderRadius: 12,
+    width: 22,
+    height: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  extraImageAdd: {
+    width: '100%',
+    height: 90,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#d0d0d0',
+    borderStyle: 'dashed',
+    backgroundColor: '#fafafa',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  videoPreviewContainer: {
+    position: 'relative',
+    width: '100%',
+    height: 100,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#1e293b',
+  },
+  videoPreviewInner: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  videoPreviewLabel: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  customMediaPickerButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  videoPickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f0fdf4',
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#059669',
+    borderStyle: 'dashed',
+    gap: 10,
+  },
+  videoPickerButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#059669',
+  },
+  videoPreviewContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f0fdf4',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#059669',
+    padding: 12,
+    marginTop: 8,
+  },
+  videoPreviewBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#059669',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  videoPreviewText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  removeVideoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    padding: 4,
+  },
+  removeVideoText: {
+    fontSize: 12,
+    color: '#dc2626',
+    fontWeight: '500',
   },
 });

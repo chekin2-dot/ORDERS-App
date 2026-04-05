@@ -3,10 +3,12 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { ChevronLeft, Camera, MapPin, Upload, Store, CheckCircle, AlertCircle } from 'lucide-react-native';
+import { ChevronLeft, Camera, MapPin, Upload, Store, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Truck, ChevronDown, X, CreditCard } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import { ARRONDISSEMENTS } from '@/lib/neighborhoods';
 import { TermsModal } from '@/components/TermsModal';
+
+const VEHICLE_TYPES = ['Moto', 'Voiture', 'Vélo', 'Scooter'];
 
 type Category = {
   id: string;
@@ -38,6 +40,15 @@ export default function RegisterMerchantScreen() {
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
+
+  const [isAlsoDriver, setIsAlsoDriver] = useState(false);
+  const [vehicleType, setVehicleType] = useState('');
+  const [showVehiclePicker, setShowVehiclePicker] = useState(false);
+  const [deliveryZones, setDeliveryZones] = useState<string[]>([]);
+  const [showZonePicker, setShowZonePicker] = useState(false);
+  const [zoneSearch, setZoneSearch] = useState('');
+  const [orangeMoneyNumber, setOrangeMoneyNumber] = useState('');
+  const [orangeMoneyName, setOrangeMoneyName] = useState('');
 
   useEffect(() => {
     fetchCategories();
@@ -333,9 +344,30 @@ export default function RegisterMerchantScreen() {
       return;
     }
 
+    if (!orangeMoneyNumber.trim()) {
+      setError('Le numéro Orange Money est obligatoire pour recevoir vos paiements');
+      return;
+    }
+
+    if (!orangeMoneyName.trim()) {
+      setError('Le nom du titulaire Orange Money est obligatoire');
+      return;
+    }
+
     if (!acceptedTerms) {
       setError('Vous devez accepter les CGU Commerçant');
       return;
+    }
+
+    if (isAlsoDriver) {
+      if (!vehicleType) {
+        setError('Veuillez sélectionner un type de véhicule pour la livraison');
+        return;
+      }
+      if (deliveryZones.length === 0) {
+        setError('Veuillez sélectionner au moins une zone de livraison');
+        return;
+      }
     }
 
     setLoading(true);
@@ -403,6 +435,9 @@ export default function RegisterMerchantScreen() {
         shop_photo_url: shopPhotoUrl,
         identity_photo_url: identityPhotoUrl,
         verification_status: 'pending',
+        is_also_driver: isAlsoDriver,
+        orange_money_number: orangeMoneyNumber.trim(),
+        orange_money_name: orangeMoneyName.trim().toUpperCase(),
       });
 
       if (merchantError) {
@@ -410,6 +445,27 @@ export default function RegisterMerchantScreen() {
         throw merchantError;
       }
       console.log('Merchant record created successfully');
+
+      if (isAlsoDriver) {
+        console.log('Creating driver record for merchant...');
+        const zonesForDelivery = deliveryZones.length > 0 ? deliveryZones : [neighborhood];
+        const { error: driverError } = await supabase.from('drivers').insert({
+          user_id: user!.id,
+          vehicle_type: vehicleType,
+          delivery_zones: zonesForDelivery,
+          identity_photo_url: identityPhotoUrl,
+          verification_status: 'pending',
+          is_available: false,
+          orange_money_number: orangeMoneyNumber.trim(),
+          orange_money_name: orangeMoneyName.trim().toUpperCase(),
+        });
+
+        if (driverError) {
+          console.error('Driver record creation error (non-blocking):', driverError);
+        } else {
+          console.log('Driver record created successfully for merchant');
+        }
+      }
 
       console.log('Refreshing profile...');
       await refreshProfile();
@@ -574,7 +630,7 @@ export default function RegisterMerchantScreen() {
             </View>
             {latitude && longitude && (
               <Text style={styles.gpsCoords}>
-                ✓ Position Boutique Capturée ({longitude.toFixed(6)}, {latitude.toFixed(6)})
+                ✓ Position Boutique Capturée (Long {longitude.toFixed(6)}, Lat {latitude.toFixed(6)})
               </Text>
             )}
             {gpsError && (
@@ -716,6 +772,204 @@ export default function RegisterMerchantScreen() {
                 <Camera size={24} color="#666" />
                 <Text style={styles.uploadText}>Sélectionner une photo</Text>
               </TouchableOpacity>
+            )}
+          </View>
+
+          <View style={styles.merchantPaymentSection}>
+            <View style={styles.merchantPaymentHeader}>
+              <CreditCard size={20} color="#f97316" />
+              <Text style={styles.merchantPaymentTitle}>Informations de paiement *</Text>
+            </View>
+            <Text style={styles.merchantPaymentHint}>
+              Ces informations sont nécessaires pour recevoir vos paiements via Orange Money.
+            </Text>
+            <View style={styles.merchantPaymentCard}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Nom du titulaire *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ex: JEAN DUPONT"
+                  value={orangeMoneyName}
+                  onChangeText={(text) => setOrangeMoneyName(text.toUpperCase())}
+                  autoCapitalize="characters"
+                  editable={!loading}
+                />
+              </View>
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Numéro Orange Money *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ex: 07 XX XX XX XX"
+                  value={orangeMoneyNumber}
+                  onChangeText={setOrangeMoneyNumber}
+                  keyboardType="phone-pad"
+                  editable={!loading}
+                />
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.alsoDriverCard}>
+            <TouchableOpacity
+              style={styles.alsoDriverToggle}
+              onPress={() => {
+                setIsAlsoDriver(!isAlsoDriver);
+                if (isAlsoDriver) {
+                  setVehicleType('');
+                  setDeliveryZones([]);
+                }
+              }}
+              disabled={loading}
+            >
+              <View style={[styles.alsoDriverIconContainer, isAlsoDriver && styles.alsoDriverIconContainerOn]}>
+                <Truck size={24} color={isAlsoDriver ? '#fff' : '#2563eb'} />
+              </View>
+              <View style={styles.alsoDriverTextContainer}>
+                <Text style={styles.alsoDriverTitle}>Je peux aussi livrer</Text>
+                <Text style={styles.alsoDriverSubtitle}>
+                  Docteur, électricien, taxi... apparaissez comme livreur/chauffeur préféré
+                </Text>
+              </View>
+              <View style={[styles.alsoDriverSwitch, isAlsoDriver && styles.alsoDriverSwitchOn]}>
+                <View style={[styles.alsoDriverSwitchThumb, isAlsoDriver && styles.alsoDriverSwitchThumbOn]} />
+              </View>
+            </TouchableOpacity>
+
+            {isAlsoDriver && (
+              <View style={styles.alsoDriverFields}>
+                <View style={styles.alsoDriverDivider} />
+
+                <Text style={styles.alsoDriverFieldsTitle}>Informations de livraison</Text>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Type de véhicule *</Text>
+                  <TouchableOpacity
+                    style={styles.driverPickerButton}
+                    onPress={() => setShowVehiclePicker(!showVehiclePicker)}
+                    disabled={loading}
+                  >
+                    <Text style={vehicleType ? styles.pickerText : styles.pickerPlaceholder}>
+                      {vehicleType || 'Sélectionner un véhicule'}
+                    </Text>
+                    <ChevronDown size={18} color="#666" />
+                  </TouchableOpacity>
+                  {showVehiclePicker && (
+                    <View style={styles.pickerList}>
+                      {VEHICLE_TYPES.map((v) => (
+                        <TouchableOpacity
+                          key={v}
+                          style={styles.pickerItem}
+                          onPress={() => {
+                            setVehicleType(v);
+                            setShowVehiclePicker(false);
+                          }}
+                        >
+                          <Text style={styles.pickerItemText}>{v}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Zones de livraison *</Text>
+                  <Text style={styles.uploadHint}>
+                    Sélectionnez les quartiers où vous pouvez livrer
+                  </Text>
+
+                  {deliveryZones.length > 0 && (
+                    <View style={styles.selectedZonesContainer}>
+                      {deliveryZones.map((zone) => (
+                        <View key={zone} style={styles.zoneTag}>
+                          <Text style={styles.zoneTagText}>{zone}</Text>
+                          <TouchableOpacity
+                            onPress={() => setDeliveryZones(deliveryZones.filter(z => z !== zone))}
+                          >
+                            <X size={14} color="#1e40af" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  <TouchableOpacity
+                    style={styles.driverPickerButton}
+                    onPress={() => setShowZonePicker(!showZonePicker)}
+                    disabled={loading}
+                  >
+                    <Text style={styles.pickerPlaceholder}>
+                      {deliveryZones.length > 0
+                        ? `${deliveryZones.length} zone(s) sélectionnée(s) — Ajouter d'autres`
+                        : 'Chercher et sélectionner des zones'}
+                    </Text>
+                    <ChevronDown size={18} color="#666" />
+                  </TouchableOpacity>
+
+                  {showZonePicker && (
+                    <View style={styles.zonePickerContainer}>
+                      <TextInput
+                        style={styles.zoneSearchInput}
+                        placeholder="Rechercher un quartier..."
+                        value={zoneSearch}
+                        onChangeText={setZoneSearch}
+                        autoFocus
+                      />
+                      <ScrollView style={styles.zonePickerList} nestedScrollEnabled>
+                        {ARRONDISSEMENTS.map((arr) => {
+                          const filtered = arr.neighborhoods.filter(n =>
+                            n.toLowerCase().includes(zoneSearch.toLowerCase())
+                          );
+                          if (filtered.length === 0) return null;
+                          return (
+                            <View key={arr.id}>
+                              <View style={styles.arrondissementHeader}>
+                                <Text style={styles.arrondissementTitle}>{arr.name}</Text>
+                              </View>
+                              {filtered.map((n) => {
+                                const selected = deliveryZones.includes(n);
+                                return (
+                                  <TouchableOpacity
+                                    key={`zone-${arr.id}-${n}`}
+                                    style={[styles.pickerItem, selected && styles.zonePickerItemSelected]}
+                                    onPress={() => {
+                                      if (selected) {
+                                        setDeliveryZones(deliveryZones.filter(z => z !== n));
+                                      } else {
+                                        setDeliveryZones([...deliveryZones, n]);
+                                      }
+                                    }}
+                                  >
+                                    <Text style={[styles.pickerItemText, selected && styles.zonePickerItemTextSelected]}>
+                                      {n}
+                                    </Text>
+                                    {selected && <Text style={styles.zoneCheckmark}>✓</Text>}
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
+                          );
+                        })}
+                      </ScrollView>
+                      <TouchableOpacity
+                        style={styles.zonePickerDone}
+                        onPress={() => {
+                          setShowZonePicker(false);
+                          setZoneSearch('');
+                        }}
+                      >
+                        <Text style={styles.zonePickerDoneText}>Confirmer la sélection ({deliveryZones.length})</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.alsoDriverNote}>
+                  <AlertCircle size={14} color="#d97706" />
+                  <Text style={styles.alsoDriverNoteText}>
+                    Votre profil livreur sera vérifié par notre équipe avant activation.
+                  </Text>
+                </View>
+              </View>
             )}
           </View>
 
@@ -1135,5 +1389,195 @@ const styles = StyleSheet.create({
     color: '#dc2626',
     fontSize: 13,
     flex: 1,
+  },
+  driverPickerButton: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  merchantPaymentSection: {
+    gap: 10,
+  },
+  merchantPaymentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  merchantPaymentTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1a1a1a',
+  },
+  merchantPaymentHint: {
+    fontSize: 13,
+    color: '#64748b',
+    lineHeight: 18,
+  },
+  merchantPaymentCard: {
+    backgroundColor: '#fff7ed',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#fed7aa',
+    padding: 16,
+    gap: 12,
+  },
+  alsoDriverCard: {
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#dbeafe',
+    backgroundColor: '#f8faff',
+    overflow: 'hidden',
+  },
+  alsoDriverToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    gap: 12,
+  },
+  alsoDriverIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#dbeafe',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  alsoDriverIconContainerOn: {
+    backgroundColor: '#2563eb',
+  },
+  alsoDriverTextContainer: {
+    flex: 1,
+  },
+  alsoDriverTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1e3a5f',
+  },
+  alsoDriverSubtitle: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  alsoDriverSwitch: {
+    width: 48,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#d1d5db',
+    padding: 2,
+    justifyContent: 'center',
+  },
+  alsoDriverSwitchOn: {
+    backgroundColor: '#2563eb',
+  },
+  alsoDriverSwitchThumb: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+    alignSelf: 'flex-start',
+  },
+  alsoDriverSwitchThumbOn: {
+    alignSelf: 'flex-end',
+  },
+  alsoDriverFields: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    gap: 12,
+  },
+  alsoDriverDivider: {
+    height: 1,
+    backgroundColor: '#dbeafe',
+    marginBottom: 4,
+  },
+  alsoDriverFieldsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1e40af',
+    marginBottom: 4,
+  },
+  alsoDriverNote: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: '#fef3c7',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 4,
+  },
+  alsoDriverNoteText: {
+    fontSize: 12,
+    color: '#92400e',
+    flex: 1,
+    lineHeight: 18,
+  },
+  selectedZonesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+  zoneTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#dbeafe',
+    borderRadius: 20,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+  },
+  zoneTagText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1e40af',
+  },
+  zonePickerContainer: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    marginTop: 4,
+    maxHeight: 260,
+    overflow: 'hidden',
+  },
+  zoneSearchInput: {
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    fontSize: 14,
+    color: '#1a1a1a',
+  },
+  zonePickerList: {
+    maxHeight: 160,
+  },
+  zonePickerItemSelected: {
+    backgroundColor: '#eff6ff',
+  },
+  zonePickerItemTextSelected: {
+    color: '#2563eb',
+    fontWeight: '600',
+  },
+  zoneCheckmark: {
+    fontSize: 14,
+    color: '#2563eb',
+    fontWeight: '700',
+  },
+  zonePickerDone: {
+    backgroundColor: '#2563eb',
+    padding: 12,
+    alignItems: 'center',
+  },
+  zonePickerDoneText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

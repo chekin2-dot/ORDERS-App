@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { Package, TrendingUp, Clock, CircleCheck as CheckCircle, Calendar, Wallet, BadgeCheck, Search, ChevronDown, ChevronUp, ArrowDown, ArrowUp } from 'lucide-react-native';
+import { Package, TrendingUp, Clock, CircleCheck as CheckCircle, Calendar, Wallet, BadgeCheck, Search, ChevronDown, ChevronUp, ArrowDown, ArrowUp, CircleDollarSign, Hourglass } from 'lucide-react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 
 interface CategoryStats {
@@ -31,6 +31,18 @@ interface DailySales {
   paid_at: string | null;
 }
 
+interface TodayLiveSales {
+  total_sales: number;
+  merchant_amount: number;
+  platform_commission: number;
+  order_count: number;
+  delivered_count: number;
+  delivered_total: number;
+  delivered_merchant: number;
+  received_from_ofd: number;
+  remaining_to_receive: number;
+}
+
 interface PeriodSales {
   total_sales: number;
   merchant_amount: number;
@@ -38,6 +50,17 @@ interface PeriodSales {
   order_count: number;
   start_date: string;
   end_date: string;
+}
+
+interface PeriodPayouts {
+  paid_amount: number;
+  pending_amount: number;
+}
+
+interface DailyChartPoint {
+  label: string;
+  total_sales: number;
+  merchant_amount: number;
 }
 
 interface OrderListItem {
@@ -53,13 +76,66 @@ interface OrderListItem {
   driver_photo_url: string | null;
 }
 
+function BarChart({ data, color }: { data: DailyChartPoint[]; color: string }) {
+  const maxVal = Math.max(...data.map(d => d.total_sales), 1);
+
+  return (
+    <View style={{ marginTop: 8 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 80, gap: 4 }}>
+        {data.map((point, i) => {
+          const heightPct = point.total_sales / maxVal;
+          const barH = Math.max(4, Math.floor(heightPct * 72));
+          const hasValue = point.total_sales > 0;
+          return (
+            <View key={i} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: 80 }}>
+              {hasValue && (
+                <View style={{
+                  width: '80%',
+                  height: barH,
+                  backgroundColor: color,
+                  borderRadius: 3,
+                  opacity: 0.85,
+                }} />
+              )}
+              {!hasValue && (
+                <View style={{
+                  width: '80%',
+                  height: 4,
+                  backgroundColor: '#e2e8f0',
+                  borderRadius: 2,
+                }} />
+              )}
+            </View>
+          );
+        })}
+      </View>
+      <View style={{ flexDirection: 'row', marginTop: 4, gap: 4 }}>
+        {data.map((point, i) => (
+          <View key={i} style={{ flex: 1, alignItems: 'center' }}>
+            {point.label ? (
+              <Text style={{ fontSize: 9, color: '#94a3b8', textAlign: 'center' }} numberOfLines={1}>
+                {point.label}
+              </Text>
+            ) : null}
+          </View>
+        ))}
+      </View>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
+        <Text style={{ fontSize: 11, color: '#94a3b8' }}>0 F CFA</Text>
+        <Text style={{ fontSize: 11, color: '#94a3b8' }}>{maxVal.toLocaleString()} F CFA</Text>
+      </View>
+    </View>
+  );
+}
+
 export default function MerchantOrdersScreen() {
   const { profile } = useAuth();
   const router = useRouter();
-  const { scrollTo } = useLocalSearchParams();
+  const { scrollTo, filter } = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   const scrollViewRef = useRef<ScrollView>(null);
   const allOrdersSectionRef = useRef<View>(null);
+  const salesSectionRef = useRef<View>(null);
   const [loading, setLoading] = useState(true);
   const [categoryStats, setCategoryStats] = useState<CategoryStats[]>([]);
   const [orderStats, setOrderStats] = useState<OrderStats>({
@@ -71,15 +147,30 @@ export default function MerchantOrdersScreen() {
   });
   const [yesterdaySales, setYesterdaySales] = useState<DailySales | null>(null);
   const [todaySales, setTodaySales] = useState<DailySales | null>(null);
+  const [todayLiveSales, setTodayLiveSales] = useState<TodayLiveSales>({
+    total_sales: 0,
+    merchant_amount: 0,
+    platform_commission: 0,
+    order_count: 0,
+    delivered_count: 0,
+    delivered_total: 0,
+    delivered_merchant: 0,
+    received_from_ofd: 0,
+    remaining_to_receive: 0,
+  });
   const [weeklySales, setWeeklySales] = useState<PeriodSales | null>(null);
   const [monthlySales, setMonthlySales] = useState<PeriodSales | null>(null);
+  const [weeklyPayouts, setWeeklyPayouts] = useState<PeriodPayouts>({ paid_amount: 0, pending_amount: 0 });
+  const [monthlyPayouts, setMonthlyPayouts] = useState<PeriodPayouts>({ paid_amount: 0, pending_amount: 0 });
+  const [weeklyChartData, setWeeklyChartData] = useState<DailyChartPoint[]>([]);
+  const [monthlyChartData, setMonthlyChartData] = useState<DailyChartPoint[]>([]);
   const [firstOrderDate, setFirstOrderDate] = useState<string | null>(null);
   const [allOrders, setAllOrders] = useState<OrderListItem[]>([]);
   const [filteredOrders, setFilteredOrders] = useState<OrderListItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAllOrders, setShowAllOrders] = useState(false);
   const [ordersLoading, setOrdersLoading] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'preparing' | 'completed'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'preparing' | 'completed' | 'today' | 'inprogress'>('all');
 
   useEffect(() => {
     console.log('[Orders] Profile changed:', {
@@ -93,7 +184,10 @@ export default function MerchantOrdersScreen() {
       loadOrdersData();
       loadAllOrders();
       loadDailySales();
+      loadTodayLiveSales();
       loadPeriodSales();
+      loadPeriodPayouts();
+      loadChartData();
     } else if (profile && !profile.merchant_id) {
       console.log('[Orders] Profile exists but no merchant_id');
       setLoading(false);
@@ -101,18 +195,48 @@ export default function MerchantOrdersScreen() {
   }, [profile?.merchant_id]);
 
   useEffect(() => {
-    if (scrollTo === 'allOrders' && allOrdersSectionRef.current) {
-      setTimeout(() => {
-        allOrdersSectionRef.current?.measureLayout(
-          scrollViewRef.current as any,
-          (x, y) => {
-            scrollViewRef.current?.scrollTo({ y: y - 20, animated: true });
-          },
-          () => {}
-        );
-      }, 500);
+    if (!loading) {
+      if (scrollTo === 'allOrders' && allOrdersSectionRef.current) {
+        setTimeout(() => {
+          allOrdersSectionRef.current?.measureLayout(
+            scrollViewRef.current as any,
+            (x, y) => {
+              scrollViewRef.current?.scrollTo({ y: y - 20, animated: true });
+            },
+            () => {}
+          );
+        }, 500);
+      } else if (scrollTo === 'sales' && salesSectionRef.current) {
+        setTimeout(() => {
+          salesSectionRef.current?.measureLayout(
+            scrollViewRef.current as any,
+            (x, y) => {
+              scrollViewRef.current?.scrollTo({ y: y - 20, animated: true });
+            },
+            () => {}
+          );
+        }, 500);
+      }
     }
   }, [scrollTo, loading]);
+
+  useEffect(() => {
+    if (!loading && filter) {
+      const f = Array.isArray(filter) ? filter[0] : filter;
+      if (f === 'today' || f === 'inprogress') {
+        setStatusFilter(f);
+        setTimeout(() => {
+          allOrdersSectionRef.current?.measureLayout(
+            scrollViewRef.current as any,
+            (x, y) => {
+              scrollViewRef.current?.scrollTo({ y: y - 20, animated: true });
+            },
+            () => {}
+          );
+        }, 500);
+      }
+    }
+  }, [filter, loading]);
 
   useEffect(() => {
     let filtered = [...allOrders];
@@ -125,6 +249,14 @@ export default function MerchantOrdersScreen() {
         filtered = filtered.filter(order => ['accepted', 'preparing', 'ready'].includes(order.status));
       } else if (statusFilter === 'completed') {
         filtered = filtered.filter(order => order.status === 'delivered');
+      } else if (statusFilter === 'today') {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        filtered = filtered.filter(order => new Date(order.created_at) >= todayStart);
+      } else if (statusFilter === 'inprogress') {
+        filtered = filtered.filter(order =>
+          ['pending', 'accepted', 'preparing', 'ready', 'in_delivery', 'pending_driver_acceptance'].includes(order.status)
+        );
       }
     }
 
@@ -148,7 +280,7 @@ export default function MerchantOrdersScreen() {
 
     console.log('[Orders] Setting up realtime subscription for merchant:', profile.merchant_id);
 
-    const subscription = supabase
+    const ordersSubscription = supabase
       .channel('merchant_orders_changes')
       .on(
         'postgres_changes',
@@ -160,20 +292,44 @@ export default function MerchantOrdersScreen() {
         },
         (payload) => {
           console.log('[Orders] Realtime order change detected:', payload);
-          // Reload all data
           loadOrdersData();
           loadAllOrders();
           loadDailySales();
+          loadTodayLiveSales();
           loadPeriodSales();
+          loadPeriodPayouts();
+          loadChartData();
         }
       )
       .subscribe((status) => {
-        console.log('[Orders] Subscription status:', status);
+        console.log('[Orders] Orders subscription status:', status);
+      });
+
+    const payoutsSubscription = supabase
+      .channel('merchant_payouts_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'merchant_daily_payouts',
+          filter: `merchant_id=eq.${profile.merchant_id}`,
+        },
+        (payload) => {
+          console.log('[Orders] Realtime payout change detected:', payload);
+          loadTodayLiveSales();
+          loadPeriodPayouts();
+          loadChartData();
+        }
+      )
+      .subscribe((status) => {
+        console.log('[Orders] Payouts subscription status:', status);
       });
 
     return () => {
       console.log('[Orders] Unsubscribing from realtime');
-      subscription.unsubscribe();
+      ordersSubscription.unsubscribe();
+      payoutsSubscription.unsubscribe();
     };
   }, [profile?.merchant_id]);
 
@@ -295,6 +451,59 @@ export default function MerchantOrdersScreen() {
     }
   }
 
+  async function loadTodayLiveSales() {
+    if (!profile?.merchant_id) return;
+
+    try {
+      const now = new Date();
+      const todayStart = new Date(now);
+      todayStart.setHours(0, 0, 0, 0);
+
+      const { data: orders } = await supabase
+        .from('orders')
+        .select('total, status')
+        .eq('merchant_id', profile.merchant_id)
+        .not('status', 'in', '("cancelled","rejected")')
+        .gte('created_at', todayStart.toISOString());
+
+      const activeOrders = orders || [];
+
+      const totalSales = activeOrders.reduce((sum, o) => sum + parseFloat(o.total.toString()), 0);
+      const merchantAmount = Math.round(totalSales * 0.9);
+      const platformCommission = Math.round(totalSales * 0.1);
+      const orderCount = activeOrders.length;
+
+      const deliveredOrders = activeOrders.filter(o => o.status === 'delivered');
+      const deliveredTotal = deliveredOrders.reduce((sum, o) => sum + parseFloat(o.total.toString()), 0);
+      const deliveredMerchant = Math.round(deliveredTotal * 0.9);
+
+      const today = now.toISOString().split('T')[0];
+      const { data: payoutData } = await supabase
+        .from('merchant_daily_payouts')
+        .select('merchant_amount, payment_status')
+        .eq('merchant_id', profile.merchant_id)
+        .eq('payment_date', today)
+        .maybeSingle();
+
+      const receivedFromOfd = payoutData?.payment_status === 'paid' ? Number(payoutData.merchant_amount) : 0;
+      const remainingToReceive = Math.max(0, merchantAmount - receivedFromOfd);
+
+      setTodayLiveSales({
+        total_sales: totalSales,
+        merchant_amount: merchantAmount,
+        platform_commission: platformCommission,
+        order_count: orderCount,
+        delivered_count: deliveredOrders.length,
+        delivered_total: deliveredTotal,
+        delivered_merchant: deliveredMerchant,
+        received_from_ofd: receivedFromOfd,
+        remaining_to_receive: remainingToReceive,
+      });
+    } catch (error) {
+      console.error('Error loading today live sales:', error);
+    }
+  }
+
   async function loadPeriodSales() {
     if (!profile?.merchant_id) return;
 
@@ -320,6 +529,91 @@ export default function MerchantOrdersScreen() {
       }
     } catch (error) {
       console.error('Error loading period sales:', error);
+    }
+  }
+
+  async function loadPeriodPayouts() {
+    if (!profile?.merchant_id) return;
+
+    try {
+      const weekStart = new Date();
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+      weekStart.setHours(0, 0, 0, 0);
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+
+      const { data } = await supabase
+        .from('merchant_daily_payouts')
+        .select('merchant_amount, payment_status, payment_date')
+        .eq('merchant_id', profile.merchant_id);
+
+      if (data) {
+        const weekPaid = data
+          .filter(p => p.payment_status === 'paid' && new Date(p.payment_date) >= weekStart)
+          .reduce((s, p) => s + Number(p.merchant_amount), 0);
+        const weekPending = data
+          .filter(p => p.payment_status === 'pending' && new Date(p.payment_date) >= weekStart)
+          .reduce((s, p) => s + Number(p.merchant_amount), 0);
+        setWeeklyPayouts({ paid_amount: weekPaid, pending_amount: weekPending });
+
+        const monthPaid = data
+          .filter(p => p.payment_status === 'paid' && new Date(p.payment_date) >= monthStart)
+          .reduce((s, p) => s + Number(p.merchant_amount), 0);
+        const monthPending = data
+          .filter(p => p.payment_status === 'pending' && new Date(p.payment_date) >= monthStart)
+          .reduce((s, p) => s + Number(p.merchant_amount), 0);
+        setMonthlyPayouts({ paid_amount: monthPaid, pending_amount: monthPending });
+      }
+    } catch (error) {
+      console.error('Error loading period payouts:', error);
+    }
+  }
+
+  async function loadChartData() {
+    if (!profile?.merchant_id) return;
+
+    try {
+      const monthStart = new Date();
+      monthStart.setDate(monthStart.getDate() - 29);
+      monthStart.setHours(0, 0, 0, 0);
+
+      const { data } = await supabase
+        .from('orders')
+        .select('created_at, total, status')
+        .eq('merchant_id', profile.merchant_id)
+        .eq('status', 'delivered')
+        .gte('created_at', monthStart.toISOString());
+
+      const ordersByDate: Record<string, number> = {};
+      (data || []).forEach(order => {
+        const dateStr = order.created_at.split('T')[0];
+        ordersByDate[dateStr] = (ordersByDate[dateStr] || 0) + Number(order.total);
+      });
+
+      const days7: DailyChartPoint[] = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+        const label = d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' });
+        const total = ordersByDate[dateStr] || 0;
+        days7.push({ label, total_sales: total, merchant_amount: total * 0.9 });
+      }
+      setWeeklyChartData(days7);
+
+      const days30: DailyChartPoint[] = [];
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+        const label = i % 6 === 0 ? d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : '';
+        const total = ordersByDate[dateStr] || 0;
+        days30.push({ label, total_sales: total, merchant_amount: total * 0.9 });
+      }
+      setMonthlyChartData(days30);
+    } catch (error) {
+      console.error('Error loading chart data:', error);
     }
   }
 
@@ -391,7 +685,7 @@ export default function MerchantOrdersScreen() {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   };
 
-  const handleStatusFilter = (filter: 'all' | 'pending' | 'preparing' | 'completed') => {
+  const handleStatusFilter = (filter: 'all' | 'pending' | 'preparing' | 'completed' | 'today' | 'inprogress') => {
     setStatusFilter(filter);
     setSearchQuery('');
     setTimeout(() => {
@@ -531,8 +825,7 @@ export default function MerchantOrdersScreen() {
             </View>
 
             {/* Daily Sales Report */}
-            {(yesterdaySales || todaySales) && (
-              <View style={styles.reportSection}>
+            <View ref={salesSectionRef} style={[styles.reportSection, { marginTop: 24, marginBottom: 24 }]}>
                 <View style={styles.reportHeader}>
                   <Calendar size={20} color="#2563eb" style={{ marginBottom: 4 }} />
                   <Text style={styles.reportTitle}>Ventes par jour</Text>
@@ -573,10 +866,37 @@ export default function MerchantOrdersScreen() {
                       </View>
 
                       <View style={styles.dailySalesRow}>
-                        <Text style={styles.platformLabel}>Commission ORDERS (10%)</Text>
+                        <Text style={styles.platformLabel}>Commission OFD (10%)</Text>
                         <Text style={styles.platformAmount}>
                           {yesterdaySales.platform_commission.toLocaleString()} F CFA
                         </Text>
+                      </View>
+
+                      <View style={styles.divider} />
+
+                      <View style={styles.paymentStatusRow}>
+                        <View style={styles.paymentStatusItem}>
+                          <View style={styles.paymentStatusLabelRow}>
+                            <CircleDollarSign size={14} color="#10b981" />
+                            <Text style={styles.paymentStatusLabel}>Vente d'hier reçu de OFD</Text>
+                          </View>
+                          <Text style={styles.paymentReceivedAmount}>
+                            {yesterdaySales.payment_status === 'paid'
+                              ? yesterdaySales.merchant_amount.toLocaleString()
+                              : '0'} F CFA
+                          </Text>
+                        </View>
+                        <View style={styles.paymentStatusItem}>
+                          <View style={styles.paymentStatusLabelRow}>
+                            <Hourglass size={14} color="#f59e0b" />
+                            <Text style={styles.paymentStatusLabel}>Reste à recevoir</Text>
+                          </View>
+                          <Text style={styles.paymentPendingAmount}>
+                            {yesterdaySales.payment_status === 'pending'
+                              ? yesterdaySales.merchant_amount.toLocaleString()
+                              : '0'} F CFA
+                          </Text>
+                        </View>
                       </View>
 
                       {yesterdaySales.payment_status === 'pending' && (
@@ -589,40 +909,76 @@ export default function MerchantOrdersScreen() {
                     </View>
                   )}
 
-                  {/* Today's Sales */}
-                  {todaySales && todaySales.total_sales > 0 && (
-                    <View style={styles.dailySalesCard}>
+                  {/* Today's Live Sales — today from midnight */}
+                  <View style={styles.dailySalesCard}>
                       <View style={styles.dailySalesHeader}>
-                        <Text style={styles.dailySalesDate}>Aujourd'hui</Text>
+                        <View>
+                          <Text style={styles.dailySalesDate}>Aujourd'hui</Text>
+                          <Text style={styles.dailySales24hLabel}>Depuis minuit</Text>
+                        </View>
                         <View style={styles.todayBadge}>
                           <Text style={styles.todayBadgeText}>En cours</Text>
                         </View>
                       </View>
 
-                      <View style={styles.dailySalesRow}>
-                        <Text style={styles.dailySalesLabel}>Chiffre d'affaires</Text>
-                        <Text style={styles.dailySalesValue}>
-                          {todaySales.total_sales.toLocaleString()} F CFA
+                      <View style={styles.totalSalesBlock}>
+                        <Text style={styles.totalSalesBlockLabel}>Total vendu aujourd'hui</Text>
+                        <View style={styles.totalSalesBlockRow}>
+                          <Text style={styles.totalSalesBlockValue}>{todayLiveSales.total_sales.toLocaleString()}</Text>
+                          <Text style={styles.totalSalesBlockCurrency}>F CFA</Text>
+                        </View>
+                        <Text style={styles.totalSalesOrderCount}>
+                          {todayLiveSales.order_count} commande{todayLiveSales.order_count > 1 ? 's' : ''} en cours{todayLiveSales.delivered_count > 0 ? ` · ${todayLiveSales.delivered_count} livrée${todayLiveSales.delivered_count > 1 ? 's' : ''}` : ''}
                         </Text>
+                      </View>
+
+                      <View style={styles.splitRow}>
+                        <View style={[styles.splitCard, styles.splitCardSeller]}>
+                          <View style={styles.splitCardHeader}>
+                            <Wallet size={16} color="#10b981" />
+                            <Text style={styles.splitCardTitle}>Votre part</Text>
+                          </View>
+                          <Text style={styles.splitCardPercent}>90%</Text>
+                          <View style={styles.splitCardAmountRow}>
+                            <Text style={styles.splitCardAmount}>{todayLiveSales.merchant_amount.toLocaleString()}</Text>
+                            <Text style={styles.splitCardCurrency}>F CFA</Text>
+                          </View>
+                        </View>
+
+                        <View style={[styles.splitCard, styles.splitCardOfd]}>
+                          <View style={styles.splitCardHeader}>
+                            <TrendingUp size={16} color="#64748b" />
+                            <Text style={[styles.splitCardTitle, { color: '#64748b' }]}>Part OFD</Text>
+                          </View>
+                          <Text style={[styles.splitCardPercent, { color: '#64748b' }]}>10%</Text>
+                          <View style={styles.splitCardAmountRow}>
+                            <Text style={[styles.splitCardAmount, { color: '#64748b' }]}>{todayLiveSales.platform_commission.toLocaleString()}</Text>
+                            <Text style={[styles.splitCardCurrency, { color: '#94a3b8' }]}>F CFA</Text>
+                          </View>
+                        </View>
                       </View>
 
                       <View style={styles.divider} />
 
-                      <View style={styles.merchantShareContainer}>
-                        <View style={styles.splitLabelContainer}>
-                          <Wallet size={16} color="#10b981" />
-                          <Text style={styles.splitLabel}>Votre part (90%)</Text>
+                      <View style={styles.paymentStatusRow}>
+                        <View style={styles.paymentStatusItem}>
+                          <View style={styles.paymentStatusLabelRow}>
+                            <CircleDollarSign size={14} color="#10b981" />
+                            <Text style={styles.paymentStatusLabel}>Vente d'hier reçu de OFD</Text>
+                          </View>
+                          <Text style={styles.paymentReceivedAmount}>
+                            {todayLiveSales.received_from_ofd.toLocaleString()} F CFA
+                          </Text>
                         </View>
-                        <Text style={styles.merchantAmount}>
-                          {todaySales.merchant_amount.toLocaleString()} F CFA
-                        </Text>
-                      </View>
-
-                      <View style={styles.dailySalesRow}>
-                        <Text style={styles.platformLabel}>Commission ORDERS (10%)</Text>
-                        <Text style={styles.platformAmount}>
-                          {todaySales.platform_commission.toLocaleString()} F CFA
-                        </Text>
+                        <View style={styles.paymentStatusItem}>
+                          <View style={styles.paymentStatusLabelRow}>
+                            <Hourglass size={14} color="#f59e0b" />
+                            <Text style={styles.paymentStatusLabel}>Reste à recevoir</Text>
+                          </View>
+                          <Text style={styles.paymentPendingAmount}>
+                            {todayLiveSales.remaining_to_receive.toLocaleString()} F CFA
+                          </Text>
+                        </View>
                       </View>
 
                       <View style={styles.todayNotice}>
@@ -630,11 +986,9 @@ export default function MerchantOrdersScreen() {
                           Sera payé demain via Orange Money
                         </Text>
                       </View>
-                    </View>
-                  )}
+                  </View>
                 </View>
-              </View>
-            )}
+            </View>
 
             {/* Weekly and Monthly Sales Report */}
             {(weeklySales || monthlySales) && (
@@ -656,30 +1010,60 @@ export default function MerchantOrdersScreen() {
                         </Text>
                       </View>
 
-                      <View style={styles.periodSalesRow}>
-                        <Text style={styles.dailySalesLabel}>Chiffre d'affaires</Text>
-                        <Text style={styles.dailySalesValue}>
-                          {weeklySales.total_sales.toLocaleString()} F CFA
-                        </Text>
+                      <View style={styles.totalSalesBlock}>
+                        <Text style={styles.totalSalesBlockLabel}>Chiffre d'affaires</Text>
+                        <View style={styles.totalSalesBlockRow}>
+                          <Text style={styles.totalSalesBlockValue}>{weeklySales.total_sales.toLocaleString()}</Text>
+                          <Text style={styles.totalSalesBlockCurrency}>F CFA</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.splitRow}>
+                        <View style={[styles.splitCard, styles.splitCardSeller]}>
+                          <View style={styles.splitCardHeader}>
+                            <Wallet size={16} color="#10b981" />
+                            <Text style={styles.splitCardTitle}>Votre part</Text>
+                          </View>
+                          <Text style={styles.splitCardPercent}>90%</Text>
+                          <View style={styles.splitCardAmountRow}>
+                            <Text style={styles.splitCardAmount}>{weeklySales.merchant_amount.toLocaleString()}</Text>
+                            <Text style={styles.splitCardCurrency}>F CFA</Text>
+                          </View>
+                        </View>
+                        <View style={[styles.splitCard, styles.splitCardOfd]}>
+                          <View style={styles.splitCardHeader}>
+                            <TrendingUp size={16} color="#64748b" />
+                            <Text style={[styles.splitCardTitle, { color: '#64748b' }]}>Part OFD</Text>
+                          </View>
+                          <Text style={[styles.splitCardPercent, { color: '#64748b' }]}>10%</Text>
+                          <View style={styles.splitCardAmountRow}>
+                            <Text style={[styles.splitCardAmount, { color: '#64748b' }]}>{weeklySales.platform_commission.toLocaleString()}</Text>
+                            <Text style={[styles.splitCardCurrency, { color: '#94a3b8' }]}>F CFA</Text>
+                          </View>
+                        </View>
                       </View>
 
                       <View style={styles.divider} />
 
-                      <View style={styles.merchantShareContainer}>
-                        <View style={styles.splitLabelContainer}>
-                          <Wallet size={16} color="#10b981" />
-                          <Text style={styles.splitLabel}>Votre part (90%)</Text>
+                      <View style={styles.paymentStatusRow}>
+                        <View style={styles.paymentStatusItem}>
+                          <View style={styles.paymentStatusLabelRow}>
+                            <CircleDollarSign size={14} color="#10b981" />
+                            <Text style={styles.paymentStatusLabel}>Vente d'hier reçu de OFD</Text>
+                          </View>
+                          <Text style={styles.paymentReceivedAmount}>
+                            {weeklyPayouts.paid_amount.toLocaleString()} F CFA
+                          </Text>
                         </View>
-                        <Text style={styles.merchantAmount}>
-                          {weeklySales.merchant_amount.toLocaleString()} F CFA
-                        </Text>
-                      </View>
-
-                      <View style={styles.dailySalesRow}>
-                        <Text style={styles.platformLabel}>Commission ORDERS (10%)</Text>
-                        <Text style={styles.platformAmount}>
-                          {weeklySales.platform_commission.toLocaleString()} F CFA
-                        </Text>
+                        <View style={styles.paymentStatusItem}>
+                          <View style={styles.paymentStatusLabelRow}>
+                            <Hourglass size={14} color="#f59e0b" />
+                            <Text style={styles.paymentStatusLabel}>Reste à recevoir</Text>
+                          </View>
+                          <Text style={styles.paymentPendingAmount}>
+                            {weeklyPayouts.pending_amount.toLocaleString()} F CFA
+                          </Text>
+                        </View>
                       </View>
 
                       <View style={styles.periodOrderCount}>
@@ -688,6 +1072,7 @@ export default function MerchantOrdersScreen() {
                           {weeklySales.order_count} commande{weeklySales.order_count > 1 ? 's' : ''} livrée{weeklySales.order_count > 1 ? 's' : ''}
                         </Text>
                       </View>
+
                     </View>
                   )}
 
@@ -701,30 +1086,60 @@ export default function MerchantOrdersScreen() {
                         </Text>
                       </View>
 
-                      <View style={styles.periodSalesRow}>
-                        <Text style={styles.dailySalesLabel}>Chiffre d'affaires</Text>
-                        <Text style={styles.dailySalesValue}>
-                          {monthlySales.total_sales.toLocaleString()} F CFA
-                        </Text>
+                      <View style={styles.totalSalesBlock}>
+                        <Text style={styles.totalSalesBlockLabel}>Chiffre d'affaires</Text>
+                        <View style={styles.totalSalesBlockRow}>
+                          <Text style={styles.totalSalesBlockValue}>{monthlySales.total_sales.toLocaleString()}</Text>
+                          <Text style={styles.totalSalesBlockCurrency}>F CFA</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.splitRow}>
+                        <View style={[styles.splitCard, styles.splitCardSeller]}>
+                          <View style={styles.splitCardHeader}>
+                            <Wallet size={16} color="#10b981" />
+                            <Text style={styles.splitCardTitle}>Votre part</Text>
+                          </View>
+                          <Text style={styles.splitCardPercent}>90%</Text>
+                          <View style={styles.splitCardAmountRow}>
+                            <Text style={styles.splitCardAmount}>{monthlySales.merchant_amount.toLocaleString()}</Text>
+                            <Text style={styles.splitCardCurrency}>F CFA</Text>
+                          </View>
+                        </View>
+                        <View style={[styles.splitCard, styles.splitCardOfd]}>
+                          <View style={styles.splitCardHeader}>
+                            <TrendingUp size={16} color="#64748b" />
+                            <Text style={[styles.splitCardTitle, { color: '#64748b' }]}>Part OFD</Text>
+                          </View>
+                          <Text style={[styles.splitCardPercent, { color: '#64748b' }]}>10%</Text>
+                          <View style={styles.splitCardAmountRow}>
+                            <Text style={[styles.splitCardAmount, { color: '#64748b' }]}>{monthlySales.platform_commission.toLocaleString()}</Text>
+                            <Text style={[styles.splitCardCurrency, { color: '#94a3b8' }]}>F CFA</Text>
+                          </View>
+                        </View>
                       </View>
 
                       <View style={styles.divider} />
 
-                      <View style={styles.merchantShareContainer}>
-                        <View style={styles.splitLabelContainer}>
-                          <Wallet size={16} color="#10b981" />
-                          <Text style={styles.splitLabel}>Votre part (90%)</Text>
+                      <View style={styles.paymentStatusRow}>
+                        <View style={styles.paymentStatusItem}>
+                          <View style={styles.paymentStatusLabelRow}>
+                            <CircleDollarSign size={14} color="#10b981" />
+                            <Text style={styles.paymentStatusLabel}>Vente d'hier reçu de OFD</Text>
+                          </View>
+                          <Text style={styles.paymentReceivedAmount}>
+                            {monthlyPayouts.paid_amount.toLocaleString()} F CFA
+                          </Text>
                         </View>
-                        <Text style={styles.merchantAmount}>
-                          {monthlySales.merchant_amount.toLocaleString()} F CFA
-                        </Text>
-                      </View>
-
-                      <View style={styles.dailySalesRow}>
-                        <Text style={styles.platformLabel}>Commission ORDERS (10%)</Text>
-                        <Text style={styles.platformAmount}>
-                          {monthlySales.platform_commission.toLocaleString()} F CFA
-                        </Text>
+                        <View style={styles.paymentStatusItem}>
+                          <View style={styles.paymentStatusLabelRow}>
+                            <Hourglass size={14} color="#f59e0b" />
+                            <Text style={styles.paymentStatusLabel}>Reste à recevoir</Text>
+                          </View>
+                          <Text style={styles.paymentPendingAmount}>
+                            {monthlyPayouts.pending_amount.toLocaleString()} F CFA
+                          </Text>
+                        </View>
                       </View>
 
                       <View style={styles.periodOrderCount}>
@@ -733,11 +1148,43 @@ export default function MerchantOrdersScreen() {
                           {monthlySales.order_count} commande{monthlySales.order_count > 1 ? 's' : ''} livrée{monthlySales.order_count > 1 ? 's' : ''}
                         </Text>
                       </View>
+
                     </View>
                   )}
                 </View>
               </View>
             )}
+
+            {/* Sales Charts */}
+            <View style={styles.reportSection}>
+              <View style={styles.reportHeader}>
+                <TrendingUp size={20} color="#059669" style={{ marginBottom: 4 }} />
+                <Text style={styles.reportTitle}>Tendances de ventes</Text>
+                <Text style={styles.reportSubtitle}>Chiffre d'affaires par jour (commandes livrées)</Text>
+              </View>
+
+              <View style={styles.chartCard}>
+                <Text style={styles.chartCardTitle}>7 derniers jours</Text>
+                {weeklyChartData.some(d => d.total_sales > 0) ? (
+                  <BarChart data={weeklyChartData} color="#2563eb" />
+                ) : (
+                  <View style={styles.chartEmpty}>
+                    <Text style={styles.chartEmptyText}>Aucune vente cette semaine</Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={[styles.chartCard, { marginTop: 12 }]}>
+                <Text style={styles.chartCardTitle}>30 derniers jours</Text>
+                {monthlyChartData.some(d => d.total_sales > 0) ? (
+                  <BarChart data={monthlyChartData} color="#10b981" />
+                ) : (
+                  <View style={styles.chartEmpty}>
+                    <Text style={styles.chartEmptyText}>Aucune vente ce mois-ci</Text>
+                  </View>
+                )}
+              </View>
+            </View>
 
             {/* Category Report */}
             {categoryStats.length > 0 && (
@@ -806,7 +1253,10 @@ export default function MerchantOrdersScreen() {
                     loadAllOrders();
                     loadOrdersData();
                     loadDailySales();
+                    loadTodayLiveSales();
                     loadPeriodSales();
+                    loadPeriodPayouts();
+                    loadChartData();
                   }}
                   disabled={ordersLoading}
                 >
@@ -830,7 +1280,13 @@ export default function MerchantOrdersScreen() {
               {statusFilter !== 'all' && (
                 <View style={styles.filterIndicator}>
                   <Text style={styles.filterIndicatorText}>
-                    Filtre actif: {statusFilter === 'pending' ? 'En attente' : statusFilter === 'preparing' ? 'En cours' : 'Livrées'}
+                    Filtre actif: {
+                      statusFilter === 'pending' ? 'En attente' :
+                      statusFilter === 'preparing' ? 'En cours' :
+                      statusFilter === 'completed' ? 'Livrées' :
+                      statusFilter === 'today' ? 'Commandes du jour' :
+                      'En cours'
+                    }
                   </Text>
                   <TouchableOpacity onPress={() => handleStatusFilter('all')}>
                     <Text style={styles.filterIndicatorClear}>Tout afficher</Text>
@@ -1486,5 +1942,164 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#2563eb',
+  },
+  paymentStatusRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 4,
+  },
+  paymentStatusItem: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    padding: 10,
+    gap: 4,
+  },
+  paymentStatusLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  paymentStatusLabel: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  paymentReceivedAmount: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#10b981',
+  },
+  paymentPendingAmount: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#f59e0b',
+  },
+  dailySales24hLabel: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 2,
+  },
+  totalSalesBlock: {
+    backgroundColor: '#1e293b',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  totalSalesBlockLabel: {
+    fontSize: 13,
+    color: '#94a3b8',
+    marginBottom: 6,
+    fontWeight: '500',
+  },
+  totalSalesBlockRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+    marginBottom: 6,
+  },
+  totalSalesBlockValue: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  totalSalesBlockCurrency: {
+    fontSize: 14,
+    color: '#94a3b8',
+  },
+  totalSalesOrderCount: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontWeight: '500',
+  },
+  splitRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  splitCard: {
+    flex: 1,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+  },
+  splitCardSeller: {
+    backgroundColor: '#f0fdf4',
+    borderColor: '#86efac',
+  },
+  splitCardOfd: {
+    backgroundColor: '#f8fafc',
+    borderColor: '#e2e8f0',
+  },
+  splitCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  splitCardTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#10b981',
+  },
+  splitCardPercent: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#10b981',
+    marginBottom: 6,
+  },
+  splitCardAmountRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+  },
+  splitCardAmount: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#10b981',
+  },
+  splitCardCurrency: {
+    fontSize: 11,
+    color: '#6ee7b7',
+  },
+  chartSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  chartSectionTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  chartCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  chartCardTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1e293b',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  chartEmpty: {
+    height: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chartEmptyText: {
+    fontSize: 13,
+    color: '#94a3b8',
   },
 });

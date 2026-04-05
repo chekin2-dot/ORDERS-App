@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { ChevronLeft, MapPin, CheckCircle } from 'lucide-react-native';
+import { ChevronLeft, MapPin, CircleCheck as CheckCircle } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import { ARRONDISSEMENTS } from '@/lib/neighborhoods';
 import { TermsModal } from '@/components/TermsModal';
@@ -321,7 +321,7 @@ export default function RegisterClientScreen() {
             </View>
             {latitude && longitude && (
               <Text style={styles.gpsCoords}>
-                ✓ Position Actuelle Capturée ({longitude.toFixed(6)}, {latitude.toFixed(6)})
+                ✓ Position Actuelle Capturée (Long {longitude.toFixed(6)}, Lat {latitude.toFixed(6)})
               </Text>
             )}
           </View>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Modal, Alert, Platform } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, MapPin, Star, Bike, Car, Truck, Zap, X, CheckCircle, Navigation, Clock } from 'lucide-react-native';
+import { ChevronLeft, MapPin, Star, Bike, Car, Truck, Zap, X, CircleCheck as CheckCircle, Navigation, Clock } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { StarRating } from '@/components/StarRating';
@@ -641,7 +641,7 @@ export default function SelectDriverScreen() {
             )}
 
             <Text style={styles.modalDescription}>
-              Une conversation automatique sera créée avec ce livreur pour discuter des détails de votre livraison. Vous serez redirigé vers la page Messages.
+              Votre demande sera envoyée à ce livreur. Il devra confirmer sa disponibilité avant que vous puissiez procéder au paiement.
             </Text>
 
             <View style={styles.modalActions}>
@@ -687,12 +687,13 @@ export default function SelectDriverScreen() {
               </View>
             </View>
 
-            <Text style={styles.successTitle}>Demande envoyée</Text>
+            <Text style={styles.successTitle}>Demande envoyée !</Text>
 
             {selectedDriver && (
               <Text style={styles.successMessage}>
-                Votre demande a été envoyée à {selectedDriver.user_profiles?.first_name}.{'\n'}
-                Vous serez notifié lorsqu'il acceptera la course.
+                Votre demande a été envoyée à {selectedDriver.user_profiles?.first_name}.{'\n\n'}
+                Attendez sa confirmation de disponibilité.{'\n'}
+                Le paiement vous sera demandé une fois qu'il aura accepté.
               </Text>
             )}
 
@@ -700,7 +701,7 @@ export default function SelectDriverScreen() {
               style={styles.successButton}
               onPress={handleSuccessOk}
             >
-              <Text style={styles.successButtonText}>OK</Text>
+              <Text style={styles.successButtonText}>Suivre ma commande</Text>
             </TouchableOpacity>
           </View>
         </View>

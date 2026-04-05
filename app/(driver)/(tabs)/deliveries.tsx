@@ -404,7 +404,7 @@ export default function DeliveriesScreen() {
                 <View style={styles.clientGpsInfo}>
                   <MapPin size={12} color="#2563eb" />
                   <Text style={styles.clientGpsText}>
-                    Position client: {order.client.latitude.toFixed(6)}, {order.client.longitude.toFixed(6)}
+                    Position client: Long {order.client.longitude.toFixed(6)}, Lat {order.client.latitude.toFixed(6)}
                   </Text>
                 </View>
               )}

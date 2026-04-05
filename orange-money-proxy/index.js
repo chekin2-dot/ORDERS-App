@@ -11,7 +11,11 @@ app.use(express.json());
 
 const PROXY_SECRET = process.env.PROXY_SECRET;
 const PORT = process.env.PORT || 3000;
+<<<<<<< Updated upstream
 const OM_API_URL = process.env.ORANGE_MONEY_API_URL || 'https://apiom.orange.bf/';
+=======
+const OM_API_URL = process.env.ORANGE_MONEY_API_URL || 'https://apiom.orange.bf/payment';
+>>>>>>> Stashed changes
 const FIXIE_URL = process.env.FIXIE_URL;
 
 function loadCertificates() {

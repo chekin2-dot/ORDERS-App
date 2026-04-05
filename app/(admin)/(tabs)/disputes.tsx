@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, Alert } from 'react-native';
-import { AlertTriangle, Eye, CheckCircle, X, Download, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
+import { TriangleAlert as AlertTriangle, Eye, CircleCheck as CheckCircle, X, Download, ChevronDown, ChevronUp } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
 import { exportDisputesToExcel } from '@/lib/excelExport';
@@ -57,32 +57,15 @@ export default function DisputesScreen() {
   };
 
   const handleExport = async () => {
-    if (disputes.length === 0) {
-      Alert.alert('Aucune donnée', 'Aucun rapport à exporter');
-      return;
+    if (disputes.length === 0) return;
+    setExporting(true);
+    try {
+      await exportDisputesToExcel();
+    } catch (error: any) {
+      console.error('Export error:', error);
+    } finally {
+      setExporting(false);
     }
-
-    Alert.alert(
-      'Exporter les Litiges',
-      `${disputes.length} rapports seront exportés en Excel. Vous pourrez choisir où enregistrer le fichier.`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Exporter',
-          onPress: async () => {
-            setExporting(true);
-            try {
-              await exportDisputesToExcel();
-            } catch (error: any) {
-              console.error('Export error:', error);
-              Alert.alert('Erreur', 'Échec de l\'exportation: ' + error.message);
-            } finally {
-              setExporting(false);
-            }
-          },
-        },
-      ]
-    );
   };
 
   const scrollToTop = () => {
@@ -161,11 +144,9 @@ export default function DisputesScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
+        <Text style={styles.title}>Litiges & Rapports</Text>
         <View style={styles.headerContent}>
-          <View style={styles.titleContainer}>
-            <Text style={styles.title}>Litiges & Rapports</Text>
-            <Text style={styles.subtitle}>{filteredDisputes.length} rapports</Text>
-          </View>
+          <Text style={styles.subtitle}>{filteredDisputes.length} rapports</Text>
           <TouchableOpacity
             style={styles.exportButton}
             onPress={handleExport}
@@ -175,7 +156,7 @@ export default function DisputesScreen() {
               <ActivityIndicator size="small" color="#fff" />
             ) : (
               <>
-                <Download size={18} color="#fff" />
+                <Download size={16} color="#fff" />
                 <Text style={styles.exportButtonText}>Exporter</Text>
               </>
             )}
@@ -346,6 +327,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: 6,
   },
   titleContainer: {
     flex: 1,
@@ -358,25 +340,19 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 14,
     color: '#64748b',
-    marginTop: 4,
   },
   exportButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
     backgroundColor: '#10b981',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
   },
   exportButtonText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
   },
   filterSection: {

@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Linking, Modal, TextInput, Image, Share } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Linking, Modal, TextInput, Image, Share, Keyboard } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ArrowLeft, Package, MapPin, Clock, User, Calendar, DollarSign, Truck, ShoppingBag, XCircle, CheckCircle, Edit, Star, Navigation, Smartphone, CreditCard, X, Share2 } from 'lucide-react-native';
+import { ArrowLeft, Package, MapPin, Clock, User, Calendar, DollarSign, Truck, ShoppingBag, Circle as XCircle, CircleCheck as CheckCircle, CreditCard as Edit, Star, Navigation, Smartphone, CreditCard, X, Share2 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
 import { DriverRating } from '@/components/DriverRating';
@@ -33,7 +33,7 @@ interface OrderDetails {
   created_at: string;
   driver_id: string | null;
   is_express: boolean;
-  payment_method: string;
+  payment_method: string | null;
   payment_status: string;
   merchant_name?: string;
   driver_name?: string;
@@ -513,10 +513,12 @@ export default function OrderDetailsScreen() {
     }
   };
 
-  const getPaymentMethodText = (method: string) => {
+  const getPaymentMethodText = (method: string | null) => {
     switch (method) {
+      case null:
+      case undefined:
       case 'pending':
-        return 'En attente';
+        return 'À définir';
       case 'cash':
         return 'Espèces';
       case 'mobile_money':
@@ -663,6 +665,52 @@ ${order.driver_name ? `🚚 Livreur: ${order.driver_name}` : ''}
           )}
         </View>
 
+        {order.status === 'pending_driver_acceptance' && (
+          <View style={styles.waitingDriverCard}>
+            <View style={styles.waitingDriverIconRow}>
+              <ActivityIndicator size="small" color="#f59e0b" />
+              <Text style={styles.waitingDriverTitle}>En attente du livreur</Text>
+            </View>
+            <Text style={styles.waitingDriverText}>
+              Votre livreur examine la demande. Vous serez invité à payer dès qu'il confirme sa disponibilité.
+            </Text>
+            <View style={styles.waitingDriverSteps}>
+              <View style={styles.waitingStep}>
+                <View style={[styles.waitingStepDot, styles.waitingStepDotDone]} />
+                <Text style={styles.waitingStepText}>Livreur sélectionné</Text>
+              </View>
+              <View style={styles.waitingStepLine} />
+              <View style={styles.waitingStep}>
+                <View style={[styles.waitingStepDot, styles.waitingStepDotActive]} />
+                <Text style={[styles.waitingStepText, styles.waitingStepTextActive]}>Confirmation du livreur</Text>
+              </View>
+              <View style={styles.waitingStepLine} />
+              <View style={styles.waitingStep}>
+                <View style={styles.waitingStepDot} />
+                <Text style={[styles.waitingStepText, styles.waitingStepTextPending]}>Paiement</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {order.status === 'pending' && !order.driver_id && (
+          <View style={styles.selectDriverCard}>
+            <Text style={styles.selectDriverTitle}>Choisissez votre livreur</Text>
+            <Text style={styles.selectDriverText}>
+              Votre commande est prête. Sélectionnez un livreur pour démarrer la livraison.
+            </Text>
+            <TouchableOpacity
+              style={styles.selectDriverButton}
+              onPress={() => router.push({
+                pathname: '/(client)/select-driver',
+                params: { orderId: order.id, neighborhood: order.delivery_neighborhood, total: order.total.toString() }
+              })}
+            >
+              <Text style={styles.selectDriverButtonText}>Choisir un livreur</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Package size={20} color="#2563eb" />
@@ -708,7 +756,7 @@ ${order.driver_name ? `🚚 Livreur: ${order.driver_name}` : ''}
                   <Text style={styles.coordinatesLabel}>Coordonnées GPS:</Text>
                 </View>
                 <Text style={styles.coordinatesValue}>
-                  {order.delivery_latitude.toFixed(6)}, {order.delivery_longitude.toFixed(6)}
+                  Long {order.delivery_longitude.toFixed(6)}, Lat {order.delivery_latitude.toFixed(6)}
                 </Text>
                 <TouchableOpacity
                   style={styles.mapButton}
@@ -745,7 +793,7 @@ ${order.driver_name ? `🚚 Livreur: ${order.driver_name}` : ''}
                   </View>
                 </View>
                 <Text style={styles.gpsCoordinates}>
-                  {driverLocation.latitude.toFixed(6)}, {driverLocation.longitude.toFixed(6)}
+                  Long {driverLocation.longitude.toFixed(6)}, Lat {driverLocation.latitude.toFixed(6)}
                 </Text>
                 <TouchableOpacity
                   style={styles.trackDriverButton}
@@ -963,7 +1011,7 @@ ${order.driver_name ? `🚚 Livreur: ${order.driver_name}` : ''}
 
                       <View style={styles.ussdCodeContainer}>
                         <Text style={styles.ussdCode}>
-                          *144*4*6*{order?.total}#
+                          *865*4*6*{order ? Math.round(order.total) : ''}#
                         </Text>
                       </View>
 
@@ -972,23 +1020,39 @@ ${order.driver_name ? `🚚 Livreur: ${order.driver_name}` : ''}
                       <TouchableOpacity
                         style={styles.generateOTPButton}
                         onPress={() => {
-                          const ussdCode = `*144*4*6*${order?.total}#`;
-                          const telUrl = Platform.OS === 'ios'
-                            ? `tel:${encodeURIComponent(ussdCode)}`
-                            : `tel:${ussdCode}`;
+                          Keyboard.dismiss();
+                          const amount = order ? Math.round(order.total) : '';
+                          const ussdCode = `*865*4*6*${amount}%23`;
+                          const telUrl = `tel:${ussdCode}`;
 
-                          Linking.openURL(telUrl).catch(err => {
-                            console.error('Error opening dialer:', err);
-                          });
+                          setTimeout(() => {
+                            Linking.openURL(telUrl).catch(err => {
+                              console.error('Error opening dialer:', err);
+                            });
+                          }, 100);
                           setShowUSSDCode(true);
                         }}
                       >
                         <Smartphone size={20} color="#fff" />
-                        <Text style={styles.generateOTPButtonText}>Générer code OTP</Text>
+                        <Text style={styles.generateOTPButtonText}>Composer le code USSD</Text>
                       </TouchableOpacity>
                     </View>
 
                     <View style={styles.divider} />
+
+                    <View style={styles.formField}>
+                      <Text style={styles.formLabel}>
+                        N° Orange Money à débiter <Text style={styles.required}>*</Text>
+                      </Text>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="Ex: 07123456"
+                        keyboardType="phone-pad"
+                        maxLength={8}
+                        value={orangeMoneyPhone}
+                        onChangeText={setOrangeMoneyPhone}
+                      />
+                    </View>
 
                     <View style={styles.formField}>
                       <Text style={styles.formLabel}>
@@ -1001,20 +1065,6 @@ ${order.driver_name ? `🚚 Livreur: ${order.driver_name}` : ''}
                         maxLength={6}
                         value={orangeMoneyOTP}
                         onChangeText={setOrangeMoneyOTP}
-                      />
-                    </View>
-
-                    <View style={styles.formField}>
-                      <Text style={styles.formLabel}>
-                        N° ayant servi pour le paiement <Text style={styles.required}>*</Text>
-                      </Text>
-                      <TextInput
-                        style={styles.formInput}
-                        placeholder="Ex: 07123456"
-                        keyboardType="phone-pad"
-                        maxLength={8}
-                        value={orangeMoneyPhone}
-                        onChangeText={setOrangeMoneyPhone}
                       />
                     </View>
                   </View>
@@ -1870,6 +1920,104 @@ const styles = StyleSheet.create({
   successButtonText: {
     color: '#fff',
     fontSize: 17,
+    fontWeight: '700',
+  },
+  waitingDriverCard: {
+    backgroundColor: '#fffbeb',
+    borderWidth: 1.5,
+    borderColor: '#fbbf24',
+    borderRadius: 16,
+    padding: 20,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    gap: 12,
+  },
+  waitingDriverIconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  waitingDriverTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#92400e',
+  },
+  waitingDriverText: {
+    fontSize: 14,
+    color: '#78350f',
+    lineHeight: 20,
+  },
+  waitingDriverSteps: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  waitingStep: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  waitingStepDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#d1d5db',
+  },
+  waitingStepDotDone: {
+    backgroundColor: '#10b981',
+  },
+  waitingStepDotActive: {
+    backgroundColor: '#f59e0b',
+  },
+  waitingStepLine: {
+    flex: 1,
+    height: 2,
+    backgroundColor: '#d1d5db',
+    marginBottom: 16,
+  },
+  waitingStepText: {
+    fontSize: 11,
+    color: '#6b7280',
+    fontWeight: '500',
+    textAlign: 'center',
+    maxWidth: 80,
+  },
+  waitingStepTextActive: {
+    color: '#d97706',
+    fontWeight: '700',
+  },
+  waitingStepTextPending: {
+    color: '#9ca3af',
+  },
+  selectDriverCard: {
+    backgroundColor: '#eff6ff',
+    borderWidth: 1.5,
+    borderColor: '#2563eb',
+    borderRadius: 16,
+    padding: 20,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    gap: 10,
+  },
+  selectDriverTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1e40af',
+  },
+  selectDriverText: {
+    fontSize: 14,
+    color: '#1e40af',
+    lineHeight: 20,
+  },
+  selectDriverButton: {
+    backgroundColor: '#2563eb',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  selectDriverButtonText: {
+    color: '#fff',
+    fontSize: 15,
     fontWeight: '700',
   },
 });

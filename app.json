@@ -26,7 +26,7 @@
         "NSCameraUsageDescription": "ORDERS App a besoin d'accéder à votre caméra pour prendre des photos de vos produits, de votre pièce d'identité et de votre profil.",
         "NSPhotoLibraryUsageDescription": "ORDERS App a besoin d'accéder à vos photos pour sélectionner des images de produits et de profil.",
         "NSMicrophoneUsageDescription": "ORDERS App a besoin d'accéder à votre microphone pour les appels avec les clients et livreurs.",
-        "UIBackgroundModes": ["remote-notification"]
+        "UIBackgroundModes": ["remote-notification", "audio", "fetch"]
       },
       "config": {
         "usesNonExemptEncryption": false
@@ -46,7 +46,11 @@
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
         "RECORD_AUDIO",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED",
+        "WAKE_LOCK",
+        "USE_FULL_SCREEN_INTENT"
       ],
       "useNextNotificationsApi": true
     },
@@ -83,7 +87,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "ORDERS App a besoin d'accéder à vos photos pour sélectionner des images de produits et de profil."
+          "photosPermission": "ORDERS App a besoin d'accéder à vos photos pour sélectionner des images de produits et de profil.",
+          "cameraPermission": "ORDERS App a besoin d'accéder à votre caméra pour prendre des photos et enregistrer des vidéos de vos produits.",
+          "microphonePermission": "ORDERS App a besoin d'accéder à votre microphone pour enregistrer des vidéos de vos produits."
         }
       ]
     ],

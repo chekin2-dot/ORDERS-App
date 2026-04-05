@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator, Platform, TextInput } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'expo-router';
-import { Store, MapPin, LogOut, Phone, Clock, Camera, Upload, X, User, Wallet, Edit2, Check, Settings } from 'lucide-react-native';
+import { Store, MapPin, LogOut, Phone, Clock, Camera, Upload, X, User, Wallet, CreditCard as Edit2, Check, Settings, FileText, ChevronRight } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
 import WorkingHoursEditor from '@/components/WorkingHoursEditor';
 import AppFooter from '@/components/AppFooter';
+import PaymentBulletin, { BulletinData } from '@/components/PaymentBulletin';
 
 interface MerchantInfo {
   id: string;
@@ -47,10 +48,14 @@ export default function MerchantProfileScreen() {
   const [editingPayment, setEditingPayment] = useState(false);
   const [orangeMoneyNumber, setOrangeMoneyNumber] = useState('');
   const [orangeMoneyName, setOrangeMoneyName] = useState('');
+  const [bulletins, setBulletins] = useState<BulletinData[]>([]);
+  const [showBulletin, setShowBulletin] = useState(false);
+  const [currentBulletin, setCurrentBulletin] = useState<BulletinData | null>(null);
 
   useEffect(() => {
     if (!authLoading && user?.id) {
       loadMerchantInfo();
+      loadBulletins();
     } else if (!authLoading) {
       setLoading(false);
     }
@@ -136,6 +141,35 @@ export default function MerchantProfileScreen() {
       console.error('Error loading merchant info:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadBulletins = async () => {
+    if (!user?.id) return;
+    try {
+      const { data } = await supabase
+        .from('payment_bulletins')
+        .select('id, recipient_type, amount, orange_money_number, period_dates, period_label, paid_at')
+        .eq('recipient_id', user.id)
+        .order('paid_at', { ascending: false })
+        .limit(20);
+
+      if (data) {
+        setBulletins(data.map((b) => ({
+          id: b.id,
+          recipient_type: b.recipient_type,
+          amount: b.amount,
+          payment_method: 'orange_money',
+          orange_money_number: b.orange_money_number,
+          period_dates: b.period_dates,
+          period_label: b.period_label,
+          paid_at: b.paid_at,
+          recipient_name: profile ? `${profile.first_name} ${profile.last_name}` : '',
+          recipient_phone: profile?.phone,
+        })));
+      }
+    } catch (error) {
+      console.error('Error loading bulletins:', error);
     }
   };
 
@@ -515,6 +549,22 @@ export default function MerchantProfileScreen() {
       </View>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+        {merchantInfo && !merchantInfo.orange_money_number && (
+          <TouchableOpacity
+            style={styles.omWarningBanner}
+            onPress={() => setEditingPayment(true)}
+            activeOpacity={0.8}
+          >
+            <Wallet size={20} color="#92400e" />
+            <View style={styles.omWarningTextContainer}>
+              <Text style={styles.omWarningTitle}>Informations de paiement manquantes</Text>
+              <Text style={styles.omWarningText}>
+                Ajoutez votre numéro Orange Money pour recevoir vos paiements. Appuyez pour compléter.
+              </Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
         <View style={styles.profileCard}>
           <TouchableOpacity
             style={styles.profileImageContainer}
@@ -752,7 +802,7 @@ export default function MerchantProfileScreen() {
                   <Text style={styles.infoSubValue}>Quartier: {merchantInfo.neighborhood}</Text>
                   {merchantInfo.latitude && merchantInfo.longitude && (
                     <Text style={styles.infoSubValue}>
-                      GPS: {parseFloat(merchantInfo.longitude).toFixed(6)}, {parseFloat(merchantInfo.latitude).toFixed(6)}
+                      GPS: Long {parseFloat(merchantInfo.latitude).toFixed(6)}, Lat {parseFloat(merchantInfo.longitude).toFixed(6)}
                     </Text>
                   )}
                 </View>
@@ -894,8 +944,45 @@ export default function MerchantProfileScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+        {bulletins.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.bulletinsHeader}>
+              <FileText size={18} color="#0ea5e9" />
+              <Text style={styles.bulletinsTitle}>Bulletins de paiement</Text>
+            </View>
+            {bulletins.map((b) => (
+              <TouchableOpacity
+                key={b.id}
+                style={styles.bulletinRow}
+                onPress={() => { setCurrentBulletin(b); setShowBulletin(true); }}
+              >
+                <View style={styles.bulletinRowLeft}>
+                  <Text style={styles.bulletinAmount}>
+                    {b.amount.toLocaleString('fr-FR')} FCFA
+                  </Text>
+                  <Text style={styles.bulletinDate}>
+                    {new Date(b.paid_at).toLocaleDateString('fr-FR', {
+                      day: 'numeric', month: 'short', year: 'numeric',
+                    })}
+                  </Text>
+                  <Text style={styles.bulletinDays}>
+                    {b.period_dates.length} jour{b.period_dates.length > 1 ? 's' : ''} couvert{b.period_dates.length > 1 ? 's' : ''}
+                  </Text>
+                </View>
+                <ChevronRight size={16} color="#cbd5e1" />
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
         <AppFooter />
       </ScrollView>
+
+      <PaymentBulletin
+        visible={showBulletin}
+        bulletin={currentBulletin}
+        onClose={() => setShowBulletin(false)}
+      />
     </View>
   );
 }
@@ -1300,5 +1387,65 @@ const styles = StyleSheet.create({
     color: '#999',
     fontStyle: 'italic',
     lineHeight: 20,
+  },
+  omWarningBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: '#fef3c7',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#fcd34d',
+    padding: 14,
+    marginBottom: 4,
+  },
+  omWarningTextContainer: {
+    flex: 1,
+  },
+  omWarningTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#92400e',
+    marginBottom: 2,
+  },
+  omWarningText: {
+    fontSize: 13,
+    color: '#b45309',
+    lineHeight: 18,
+  },
+  bulletinsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  bulletinsTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  bulletinRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  bulletinRowLeft: {
+    gap: 2,
+  },
+  bulletinAmount: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  bulletinDate: {
+    fontSize: 12,
+    color: '#64748b',
+  },
+  bulletinDays: {
+    fontSize: 12,
+    color: '#94a3b8',
   },
 });

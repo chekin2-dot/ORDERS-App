@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Dimensions, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Dimensions } from 'react-native';
 import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Users, Truck, Download, Store, Award, ChevronDown, ChevronUp } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { exportAnalyticsToExcel } from '@/lib/excelExport';
@@ -284,46 +284,28 @@ export default function AnalyticsScreen() {
   };
 
   const handleExport = async () => {
-    if (!data) {
-      Alert.alert('Aucune donnée', 'Aucune donnée à exporter');
-      return;
+    if (!data) return;
+    setExporting(true);
+    try {
+      const revenue = period === 'day' ? data.daily_revenue : period === 'week' ? data.weekly_revenue : data.monthly_revenue;
+      const orders = period === 'day' ? data.daily_orders : period === 'week' ? data.weekly_orders : data.monthly_orders;
+      await exportAnalyticsToExcel({
+        period,
+        revenue,
+        orders,
+        avgOrderValue: data.avg_order_value,
+        totalClients: data.total_clients,
+        totalMerchants: data.total_merchants,
+        totalDrivers: data.total_drivers,
+        topMerchants,
+        topDrivers,
+        topClients,
+      });
+    } catch (error: any) {
+      console.error('Export error:', error);
+    } finally {
+      setExporting(false);
     }
-
-    Alert.alert(
-      'Exporter les Analytiques',
-      'Le rapport sera créé en Excel. Vous pourrez choisir où l\'enregistrer (Téléchargements, Drive, Email, etc.)',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Exporter',
-          onPress: async () => {
-            setExporting(true);
-            try {
-              const revenue = period === 'day' ? data.daily_revenue : period === 'week' ? data.weekly_revenue : data.monthly_revenue;
-              const orders = period === 'day' ? data.daily_orders : period === 'week' ? data.weekly_orders : data.monthly_orders;
-
-              await exportAnalyticsToExcel({
-                period,
-                revenue,
-                orders,
-                avgOrderValue: data.avg_order_value,
-                totalClients: data.total_clients,
-                totalMerchants: data.total_merchants,
-                totalDrivers: data.total_drivers,
-                topMerchants,
-                topDrivers,
-                topClients,
-              });
-            } catch (error: any) {
-              console.error('Export error:', error);
-              Alert.alert('Erreur', 'Échec de l\'exportation: ' + error.message);
-            } finally {
-              setExporting(false);
-            }
-          },
-        },
-      ]
-    );
   };
 
   const scrollToTop = () => {

@@ -187,26 +187,38 @@ export default function MerchantDashboardScreen() {
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         <SystemNotificationBanner />
         <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
+          <TouchableOpacity
+            style={styles.statCard}
+            onPress={() => router.push('/(merchant)/(tabs)/orders?filter=today')}
+            activeOpacity={0.75}
+          >
             <Package size={32} color="#1a1a1a" />
             <Text style={[styles.statValue, styles.statValueMargin]}>{stats.todayOrders}</Text>
             <Text style={styles.statLabel}>Commandes du jour</Text>
-          </View>
+          </TouchableOpacity>
 
-          <View style={styles.statCard}>
+          <TouchableOpacity
+            style={styles.statCard}
+            onPress={() => router.push('/(merchant)/(tabs)/orders?filter=inprogress')}
+            activeOpacity={0.75}
+          >
             <Clock size={32} color="#1a1a1a" />
             <Text style={[styles.statValue, styles.statValueMargin]}>{stats.inProgress}</Text>
             <Text style={styles.statLabel}>En cours</Text>
-          </View>
+          </TouchableOpacity>
 
-          <View style={styles.statCard}>
+          <TouchableOpacity
+            style={styles.statCard}
+            onPress={() => router.push('/(merchant)/(tabs)/orders?scrollTo=sales')}
+            activeOpacity={0.75}
+          >
             <DollarSign size={32} color="#1a1a1a" />
             <View style={styles.priceContainer}>
               <Text style={styles.statValue}>{stats.todayRevenue.toLocaleString('fr-FR')}</Text>
               <Text style={styles.currencyLabel}>F CFA</Text>
             </View>
             <Text style={styles.statLabel}>Chiffre du jour</Text>
-          </View>
+          </TouchableOpacity>
         </View>
 
         {profile?.status === 'pending' && (

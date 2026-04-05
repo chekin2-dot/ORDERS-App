@@ -3,9 +3,10 @@ import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { ChevronLeft, Camera, Upload, CheckCircle } from 'lucide-react-native';
+import { ChevronLeft, Camera, Upload, CircleCheck as CheckCircle, CreditCard, Image as ImageIcon } from 'lucide-react-native';
 import { ARRONDISSEMENTS } from '@/lib/neighborhoods';
 import { TermsModal } from '@/components/TermsModal';
+import * as ImagePicker from 'expo-image-picker';
 
 const VEHICLE_TYPES = [
   'Moto',
@@ -21,7 +22,7 @@ export default function RegisterDriverScreen() {
   const [lastName, setLastName] = useState('');
   const [vehicleType, setVehicleType] = useState('');
   const [deliveryZones, setDeliveryZones] = useState<string[]>([]);
-  const [whatsappNumber, setWhatsappNumber] = useState(user?.phone || '');
+  const [whatsappNumber, setWhatsappNumber] = useState((user?.user_metadata?.phone as string) || user?.phone || '');
   const [identityPhotoUri, setIdentityPhotoUri] = useState<string | null>(null);
   const [idCardFrontUri, setIdCardFrontUri] = useState<string | null>(null);
   const [idCardBackUri, setIdCardBackUri] = useState<string | null>(null);
@@ -32,6 +33,8 @@ export default function RegisterDriverScreen() {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [zoneSearchQuery, setZoneSearchQuery] = useState('');
+  const [orangeMoneyNumber, setOrangeMoneyNumber] = useState('');
+  const [orangeMoneyName, setOrangeMoneyName] = useState('');
 
   const toggleZone = (zone: string) => {
     if (deliveryZones.includes(zone)) {
@@ -50,50 +53,74 @@ export default function RegisterDriverScreen() {
     )
   })).filter(arr => arr.neighborhoods.length > 0);
 
+  const applyPhoto = (uri: string, photoType: 'identity' | 'id_front' | 'id_back') => {
+    if (photoType === 'identity') setIdentityPhotoUri(uri);
+    else if (photoType === 'id_front') setIdCardFrontUri(uri);
+    else setIdCardBackUri(uri);
+  };
+
+  const handlePhotoSelectWeb = (photoType: 'identity' | 'id_front' | 'id_back') => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = (e: any) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const result = event.target?.result as string;
+          applyPhoto(result, photoType);
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+    input.click();
+  };
+
+  const handlePickFromGallery = async (photoType: 'identity' | 'id_front' | 'id_back') => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission refusée', 'Veuillez autoriser l\'accès à la galerie dans les paramètres.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) {
+      applyPhoto(result.assets[0].uri, photoType);
+    }
+  };
+
+  const handleTakePhoto = async (photoType: 'identity' | 'id_front' | 'id_back') => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission refusée', 'Veuillez autoriser l\'accès à la caméra dans les paramètres.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) {
+      applyPhoto(result.assets[0].uri, photoType);
+    }
+  };
+
   const handlePhotoSelect = (photoType: 'identity' | 'id_front' | 'id_back') => {
     if (Platform.OS === 'web') {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.onchange = (e: any) => {
-        const file = e.target.files?.[0];
-        if (file) {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const result = event.target?.result as string;
-            if (photoType === 'identity') {
-              setIdentityPhotoUri(result);
-            } else if (photoType === 'id_front') {
-              setIdCardFrontUri(result);
-            } else if (photoType === 'id_back') {
-              setIdCardBackUri(result);
-            }
-          };
-          reader.readAsDataURL(file);
-        }
-      };
-      input.click();
+      handlePhotoSelectWeb(photoType);
     } else {
       Alert.alert(
         'Choisir une photo',
         'Sélectionnez une source',
         [
-          {
-            text: 'Annuler',
-            style: 'cancel',
-          },
-          {
-            text: 'Galerie',
-            onPress: () => {
-              Alert.alert('Info', 'La sélection depuis la galerie sera disponible prochainement');
-            },
-          },
-          {
-            text: 'Caméra',
-            onPress: () => {
-              Alert.alert('Info', 'La capture par caméra sera disponible prochainement');
-            },
-          },
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Galerie', onPress: () => handlePickFromGallery(photoType) },
+          { text: 'Caméra', onPress: () => handleTakePhoto(photoType) },
         ]
       );
     }
@@ -125,6 +152,16 @@ export default function RegisterDriverScreen() {
       return;
     }
 
+    if (!orangeMoneyNumber.trim()) {
+      Alert.alert('Erreur', 'Le numéro Orange Money est obligatoire pour recevoir vos paiements');
+      return;
+    }
+
+    if (!orangeMoneyName.trim()) {
+      Alert.alert('Erreur', 'Le nom du titulaire Orange Money est obligatoire');
+      return;
+    }
+
     if (!acceptedTerms) {
       Alert.alert('Erreur', 'Vous devez accepter les CGU Livreur');
       return;
@@ -132,9 +169,15 @@ export default function RegisterDriverScreen() {
 
     setLoading(true);
     try {
-      const phoneNumber = user!.phone || (user!.user_metadata?.phone as string) || whatsappNumber.trim();
+      const phoneNumber = (user!.user_metadata?.phone as string) || user!.phone || whatsappNumber.trim();
 
-      const { error: profileError } = await supabase.from('user_profiles').insert({
+      if (!phoneNumber) {
+        Alert.alert('Erreur', 'Numéro de téléphone introuvable. Veuillez renseigner votre numéro WhatsApp.');
+        setLoading(false);
+        return;
+      }
+
+      const { error: profileError } = await supabase.from('user_profiles').upsert({
         id: user!.id,
         user_type: 'driver',
         phone: phoneNumber,
@@ -142,28 +185,55 @@ export default function RegisterDriverScreen() {
         last_name: lastName.trim(),
         whatsapp_number: whatsappNumber.trim() || phoneNumber,
         status: 'pending',
-      });
+      }, { onConflict: 'id' });
 
       if (profileError) throw profileError;
 
-      const { error: driverError } = await supabase.from('drivers').insert({
-        user_id: user!.id,
-        vehicle_type: vehicleType,
-        delivery_zones: deliveryZones,
-        verification_status: 'pending',
-        identity_photo_url: identityPhotoUri || '',
-        id_card_front_url: idCardFrontUri || '',
-        id_card_back_url: idCardBackUri || '',
-      });
+      const { data: existingDriver } = await supabase
+        .from('drivers')
+        .select('id')
+        .eq('user_id', user!.id)
+        .maybeSingle();
 
-      if (driverError) throw driverError;
+      if (existingDriver) {
+        const { error: driverUpdateError } = await supabase.from('drivers').update({
+          vehicle_type: vehicleType,
+          delivery_zones: deliveryZones,
+          verification_status: 'pending',
+          identity_photo_url: identityPhotoUri || '',
+          id_card_front_url: idCardFrontUri || '',
+          id_card_back_url: idCardBackUri || '',
+          orange_money_number: orangeMoneyNumber.trim(),
+          orange_money_name: orangeMoneyName.trim().toUpperCase(),
+        }).eq('user_id', user!.id);
+        if (driverUpdateError) throw driverUpdateError;
+      } else {
+        const { error: driverError } = await supabase.from('drivers').insert({
+          user_id: user!.id,
+          vehicle_type: vehicleType,
+          delivery_zones: deliveryZones,
+          verification_status: 'pending',
+          identity_photo_url: identityPhotoUri || '',
+          id_card_front_url: idCardFrontUri || '',
+          id_card_back_url: idCardBackUri || '',
+          orange_money_number: orangeMoneyNumber.trim(),
+          orange_money_name: orangeMoneyName.trim().toUpperCase(),
+        });
+        if (driverError) throw driverError;
+      }
 
       await refreshProfile();
 
       setLoading(false);
       setShowSuccessModal(true);
     } catch (error: any) {
-      Alert.alert('Erreur', error.message);
+      let message = error.message || 'Une erreur est survenue. Veuillez réessayer.';
+      if (message.includes('duplicate key') && message.includes('phone')) {
+        message = 'Ce numéro de téléphone est déjà utilisé par un autre compte.';
+      } else if (message.includes('duplicate key')) {
+        message = 'Un compte existe déjà avec ces informations.';
+      }
+      Alert.alert('Erreur', message);
       setLoading(false);
     }
   };
@@ -313,19 +383,44 @@ export default function RegisterDriverScreen() {
             {identityPhotoUri ? (
               <View>
                 <Image source={{ uri: identityPhotoUri }} style={styles.photoPreview} />
-                <TouchableOpacity
-                  style={[styles.uploadButton, styles.changePhotoButton]}
-                  onPress={() => handlePhotoSelect('identity')}
-                >
-                  <Upload size={20} color="#007AFF" />
-                  <Text style={styles.changePhotoText}>Changer la photo</Text>
-                </TouchableOpacity>
+                <View style={styles.photoActionRow}>
+                  {Platform.OS !== 'web' && (
+                    <TouchableOpacity
+                      style={[styles.photoActionBtn, styles.photoActionBtnCamera]}
+                      onPress={() => handleTakePhoto('identity')}
+                    >
+                      <Camera size={18} color="#fff" />
+                      <Text style={styles.photoActionBtnText}>Reprendre</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={[styles.photoActionBtn, styles.photoActionBtnGallery]}
+                    onPress={Platform.OS === 'web' ? () => handlePhotoSelect('identity') : () => handlePickFromGallery('identity')}
+                  >
+                    <ImageIcon size={18} color="#007AFF" />
+                    <Text style={[styles.photoActionBtnText, { color: '#007AFF' }]}>Galerie</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             ) : (
-              <TouchableOpacity style={styles.uploadButton} onPress={() => handlePhotoSelect('identity')}>
-                <Camera size={24} color="#666" />
-                <Text style={styles.uploadText}>Sélectionner une photo</Text>
-              </TouchableOpacity>
+              <View style={styles.photoActionRow}>
+                {Platform.OS !== 'web' && (
+                  <TouchableOpacity
+                    style={[styles.uploadButton, styles.uploadButtonCamera, { flex: 1 }]}
+                    onPress={() => handleTakePhoto('identity')}
+                  >
+                    <Camera size={22} color="#fff" />
+                    <Text style={styles.uploadButtonCameraText}>Prendre une photo</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={[styles.uploadButton, { flex: 1 }]}
+                  onPress={Platform.OS === 'web' ? () => handlePhotoSelect('identity') : () => handlePickFromGallery('identity')}
+                >
+                  <ImageIcon size={22} color="#666" />
+                  <Text style={styles.uploadText}>Galerie</Text>
+                </TouchableOpacity>
+              </View>
             )}
           </View>
 
@@ -375,6 +470,40 @@ export default function RegisterDriverScreen() {
                 <Text style={styles.uploadText}>Sélectionner une photo</Text>
               </TouchableOpacity>
             )}
+          </View>
+
+          <View style={styles.paymentSection}>
+            <View style={styles.paymentSectionHeader}>
+              <CreditCard size={20} color="#f97316" />
+              <Text style={styles.paymentSectionTitle}>Informations de paiement *</Text>
+            </View>
+            <Text style={styles.paymentSectionHint}>
+              Ces informations sont nécessaires pour recevoir vos paiements de livraison via Orange Money.
+            </Text>
+            <View style={styles.paymentCard}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Nom du titulaire *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ex: JEAN DUPONT"
+                  value={orangeMoneyName}
+                  onChangeText={(text) => setOrangeMoneyName(text.toUpperCase())}
+                  autoCapitalize="characters"
+                  editable={!loading}
+                />
+              </View>
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Numéro Orange Money *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ex: 07 XX XX XX XX"
+                  value={orangeMoneyNumber}
+                  onChangeText={setOrangeMoneyNumber}
+                  keyboardType="phone-pad"
+                  editable={!loading}
+                />
+              </View>
+            </View>
           </View>
 
           <View style={styles.termsContainer}>
@@ -574,6 +703,40 @@ const styles = StyleSheet.create({
     color: '#007AFF',
     fontWeight: '600',
   },
+  photoActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  photoActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  photoActionBtnCamera: {
+    backgroundColor: '#1a1a1a',
+  },
+  photoActionBtnGallery: {
+    backgroundColor: '#E3F2FD',
+    borderWidth: 1,
+    borderColor: '#007AFF',
+  },
+  photoActionBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  uploadButtonCamera: {
+    backgroundColor: '#1a1a1a',
+  },
+  uploadButtonCameraText: {
+    fontSize: 15,
+    color: '#fff',
+    fontWeight: '500',
+  },
   termsContainer: {
     marginTop: 8,
     gap: 8,
@@ -670,5 +833,31 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  paymentSection: {
+    gap: 10,
+  },
+  paymentSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  paymentSectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1a1a1a',
+  },
+  paymentSectionHint: {
+    fontSize: 13,
+    color: '#64748b',
+    lineHeight: 18,
+  },
+  paymentCard: {
+    backgroundColor: '#fff7ed',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#fed7aa',
+    padding: 16,
+    gap: 12,
   },
 });
